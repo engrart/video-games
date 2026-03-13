@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Experience of Soccer</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    font-family: 'Press Start 2P', monospace;
+    overflow: hidden;
+    width: 100vw; height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+  }
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+    border: 4px solid #fff;
+  }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script>
+// ─── Canvas Setup ───────────────────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 500;
+canvas.width = W; canvas.height = H;
+
+// ─── Audio ───────────────────────────────────────────────────────────────────
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+let musicStarted = false;
+let musicTimer = null;
+let musicStep = 0;
+let musicLevel = 0;
+
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new AudioCtx();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (!musicStarted) startMusic();
+}
+
+function wakeTitleAudio() {
+  if (state === STATE.TITLE || state === STATE.CELEBRATION) ensureAudio();
+}
+
+function syncMusicToLevel(levelIndex) {
+  musicLevel = Math.max(0, Math.min(levelIndex, LEVELS.length - 1));
+  musicStep = 0;
+}
+
+function playChipNote(type, frequency, startTime, duration, volume) {
+  if (!audioCtx || !frequency) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(frequency, startTime);
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.linearRampToValueAtTime(volume, startTime + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  osc.start(startTime);
+  osc.stop(startTime + duration + 0.02);
+}
+
+function startMusic() {
+  if (!audioCtx || musicStarted) return;
+  musicStarted = true;
+
+  function scheduleMusicTick() {
+    if (!audioCtx) return;
+    const music = LEVELS[musicLevel].music;
+    const noteLength = music.noteLength;
+    const now = audioCtx.currentTime + 0.02;
+    const melodyFreq = music.melody[musicStep % music.melody.length];
+    const bassFreq = music.bass[musicStep % music.bass.length];
+
+    playChipNote('square', melodyFreq, now, noteLength, 0.045);
+    playChipNote('triangle', bassFreq, now, noteLength * 0.95, 0.035);
+
+    if (music.accent && musicStep % music.accent.every === music.accent.offset) {
+      playChipNote('square', melodyFreq / 2, now, music.accent.length, music.accent.volume);
+    }
+
+    musicStep = (musicStep + 1) % music.melody.length;
+    musicTimer = window.setTimeout(scheduleMusicTick, noteLength * 1000);
+  }
+
+  scheduleMusicTick();
+}
+
+function playThud() {
+  ensureAudio();
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.connect(g); g.connect(audioCtx.destination);
+  o.type = 'sine'; o.frequency.setValueAtTime(200, audioCtx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.12);
+  g.gain.setValueAtTime(0.6, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+  o.start(); o.stop(audioCtx.currentTime + 0.15);
+}
+
+function playMiss() {
+  ensureAudio();
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.connect(g); g.connect(audioCtx.destination);
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(120, audioCtx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(60, audioCtx.currentTime + 0.3);
+  g.gain.setValueAtTime(0.5, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+  o.start(); o.stop(audioCtx.currentTime + 0.3);
+}
+
+function playFanfare() {
+  ensureAudio();
+  const notes = [523, 659, 784, 1047];
+  notes.forEach((freq, i) => {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = 'square'; o.frequency.value = freq;
+    const t = audioCtx.currentTime + i * 0.15;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.4, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    o.start(t); o.stop(t + 0.35);
+  });
+}
+
+function playCountdown() {
+  ensureAudio();
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.connect(g); g.connect(audioCtx.destination);
+  o.type = 'square'; o.frequency.value = 440;
+  g.gain.setValueAtTime(0.4, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+  o.start(); o.stop(audioCtx.currentTime + 0.1);
+}
+
+// ─── Level Data ───────────────────────────────────────────────────────────────
+const LEVELS = [
+  {
+    name: "Seattle, Washington",
+    flag: "🇺🇸",
+    timeLimit: 90,
+    sweetSpotRadius: 22,
+    graceRadius: 35,
+    ballSpeed: 2.35,
+    bgDraw: drawSeattle,
+    music: {
+      noteLength: 0.18,
+      melody: [
+        659, 784, 880, 784, 659, 523, 659, 784,
+        988, 1047, 988, 784, 659, 784, 659, 523,
+        440, 523, 659, 523, 440, 392, 440, 523,
+        659, 784, 659, 523, 494, 523, 440, 392
+      ],
+      bass: [
+        165, 165, 196, 196, 131, 131, 147, 147,
+        165, 165, 196, 196, 131, 131, 147, 147,
+        110, 110, 131, 131, 98, 98, 110, 110,
+        123, 123, 147, 147, 131, 131, 110, 110
+      ],
+      accent: { every: 8, offset: 4, length: 0.08, volume: 0.02 }
+    }
+  },
+  {
+    name: "Mexico City, Mexico",
+    flag: "🇲🇽",
+    timeLimit: 90,
+    sweetSpotRadius: 20,
+    graceRadius: 31,
+    ballSpeed: 2.55,
+    bgDraw: drawMexicoCity,
+    music: {
+      noteLength: 0.16,
+      melody: [
+        784, 880, 988, 880, 784, 659, 698, 784,
+        880, 988, 1175, 988, 880, 784, 698, 659,
+        587, 659, 698, 784, 698, 659, 587, 523,
+        587, 659, 698, 659, 587, 523, 494, 523
+      ],
+      bass: [
+        196, 196, 196, 196, 147, 147, 147, 147,
+        175, 175, 175, 175, 131, 131, 131, 131,
+        147, 147, 147, 147, 123, 123, 123, 123,
+        131, 131, 131, 131, 110, 110, 110, 110
+      ],
+      accent: { every: 4, offset: 2, length: 0.06, volume: 0.024 }
+    }
+  },
+  {
+    name: "Beijing, China",
+    flag: "🇨🇳",
+    timeLimit: 90,
+    sweetSpotRadius: 18,
+    graceRadius: 29,
+    ballSpeed: 2.75,
+    bgDraw: drawBeijing,
+    music: {
+      noteLength: 0.15,
+      melody: [
+        784, 880, 1047, 1175, 1047, 880, 784, 659,
+        784, 880, 1047, 1319, 1175, 1047, 880, 784,
+        659, 784, 880, 1047, 880, 784, 659, 587,
+        659, 784, 880, 784, 659, 587, 523, 587
+      ],
+      bass: [
+        196, 196, 147, 147, 165, 165, 131, 131,
+        196, 196, 147, 147, 165, 165, 131, 131,
+        147, 147, 131, 131, 123, 123, 110, 110,
+        131, 131, 110, 110, 98, 98, 110, 110
+      ],
+      accent: { every: 8, offset: 1, length: 0.05, volume: 0.022 }
+    }
+  }
+];
+
+// ─── Game State ───────────────────────────────────────────────────────────────
+const STATE = { TITLE: 'title', INTRO: 'intro', PLAY: 'play', LEVEL_COMPLETE: 'level_complete', CELEBRATION: 'celebration' };
+let state = STATE.TITLE;
+let numPlayers = 1;
+let currentLevel = 0;
+let totalJuggles = [0, 0];
+let introTimer = 0;
+let countdownPhase = 0; // 3,2,1,GO
+let levelCompleteTimer = 0;
+let winnerIndex = -1;
+let loserIndex = -1;
+
+// ─── Player Setup ─────────────────────────────────────────────────────────────
+function makeLane(yCenter, key, color, label) {
+  return {
+    yCenter,
+    key,
+    color,
+    label,
+    x: 80,               // horizontal position (progress)
+    streak: 0,
+    totalJuggles: 0,
+    stumble: 0,          // stumble shake timer
+    // ball state
+    ballAngle: 0,        // arc angle in radians [0 = foot, π = peak]
+    ballActive: false,
+    pressed: false,
+    miss: false
+  };
+}
+
+let lanes = [];
+const TRACK_START = 80;
+const TRACK_END = W - 80;
+const TRACK_LENGTH = TRACK_END - TRACK_START;
+const PLAYER_SPEED_GOOD = 28;
+const PLAYER_SPEED_GRACE = 18;
+const PLAYER_SPEED_MISS = -4;
+
+function initLanes() {
+  if (numPlayers === 2) {
+    lanes = [
+      makeLane(170, ' ', '#00e5ff', 'P1 SPACE'),
+      makeLane(340, 'Enter', '#ffea00', 'P2 ENTER')
+    ];
+  } else {
+    lanes = [
+      makeLane(H / 2, ' ', '#00e5ff', 'SPACE')
+    ];
+  }
+}
+
+// ─── Ball Arc ─────────────────────────────────────────────────────────────────
+// Ball swings from foot (angle=0) to peak (angle=π) and back continuously
+// ballAngle goes 0 → π → 2π → ... (full sine wave)
+// foot contact zone: angle near 0 or 2π (i.e. sin ≈ 0, descending)
+
+const BALL_ARC_HEIGHT = 70; // pixels above foot
+const BALL_FOOT_OFFSET_Y = 30; // foot is this many px below yCenter
+const BALL_FOOT_OFFSET_X = 14;
+
+function getFootPos(lane) {
+  return {
+    fx: lane.x + BALL_FOOT_OFFSET_X,
+    fy: lane.yCenter + BALL_FOOT_OFFSET_Y
+  };
+}
+
+function getBallPos(lane, level) {
+  // angle cycles 0 → 2π
+  const a = lane.ballAngle;
+  // bx slight horizontal sway
+  const { fx, fy } = getFootPos(lane);
+  const bx = fx + Math.sin(a) * 10;
+  const footY = fy;
+  const by = footY - Math.abs(Math.sin(a)) * BALL_ARC_HEIGHT;
+  return { bx, by };
+}
+
+function getTimingDistance(lane, level) {
+  const { bx, by } = getBallPos(lane, level);
+  const { fx, fy } = getFootPos(lane);
+  return Math.hypot(bx - fx, by - fy);
+}
+
+function judgeJuggleTiming(lane, level) {
+  const config = LEVELS[level];
+  const distance = getTimingDistance(lane, level);
+  if (distance <= config.sweetSpotRadius) return 'sweet';
+  if (distance <= config.graceRadius) return 'grace';
+  return 'miss';
+}
+
+// ─── Input ────────────────────────────────────────────────────────────────────
+const keysDown = {};
+document.addEventListener('keydown', e => {
+  const k = e.key;
+  if (keysDown[k]) return; // prevent repeat
+  keysDown[k] = true;
+  ensureAudio();
+  handleKeyPress(k);
+});
+document.addEventListener('keyup', e => { keysDown[e.key] = false; });
+canvas.addEventListener('pointerdown', wakeTitleAudio);
+
+function handleKeyPress(k) {
+  if (state === STATE.TITLE) {
+    if (k === '1') { numPlayers = 1; startGame(); }
+    if (k === '2') { numPlayers = 2; startGame(); }
+    return;
+  }
+  if (state === STATE.LEVEL_COMPLETE) {
+    if (k === ' ' || k === 'Enter') nextLevel();
+    return;
+  }
+  if (state === STATE.CELEBRATION) {
+    if (k === ' ' || k === 'Enter') goToTitle();
+    return;
+  }
+  if (state === STATE.PLAY) {
+    lanes.forEach(lane => {
+      if (k === lane.key && !lane.pressed) {
+        lane.pressed = true;
+        const timing = judgeJuggleTiming(lane, currentLevel);
+        if (timing !== 'miss') {
+          lane.streak++;
+          lane.totalJuggles++;
+          totalJuggles[lanes.indexOf(lane)]++;
+          lane.x = Math.min(
+            TRACK_END,
+            lane.x + (timing === 'sweet' ? PLAYER_SPEED_GOOD : PLAYER_SPEED_GRACE)
+          );
+          lane.ballAngle = 0.8;
+          lane.stumble = 0;
+          lane.miss = false;
+          playThud();
+          if (lane.x >= TRACK_END) checkLevelComplete();
+        } else {
+          lane.streak = 0;
+          lane.x = Math.max(TRACK_START, lane.x + PLAYER_SPEED_MISS);
+          lane.stumble = 12;
+          lane.miss = true;
+          playMiss();
+        }
+      }
+    });
+  }
+}
+
+document.addEventListener('keyup', e => {
+  lanes.forEach(lane => { if (e.key === lane.key) lane.pressed = false; });
+}, true);
+
+// ─── Game Flow ────────────────────────────────────────────────────────────────
+function startGame() {
+  currentLevel = 0;
+  totalJuggles = [0, 0];
+  winnerIndex = -1;
+  loserIndex = -1;
+  startLevel();
+}
+
+function goToTitle() {
+  currentLevel = 0;
+  syncMusicToLevel(0);
+  state = STATE.TITLE;
+}
+
+function startLevel() {
+  initLanes();
+  syncMusicToLevel(currentLevel);
+  state = STATE.INTRO;
+  introTimer = 0;
+  countdownPhase = 0;
+}
+
+let levelTimer = 0;
+function beginPlay() {
+  state = STATE.PLAY;
+  levelTimer = 0;
+  winnerIndex = -1;
+  loserIndex = -1;
+  lanes.forEach(l => {
+    l.ballActive = true;
+    l.ballAngle = 0;
+    l.miss = false;
+    l.pressed = false;
+  });
+}
+
+function checkLevelComplete() {
+  if (numPlayers === 1) {
+    if (lanes[0].x >= TRACK_END) {
+      winnerIndex = 0;
+      loserIndex = -1;
+      state = STATE.LEVEL_COMPLETE;
+      levelCompleteTimer = 0;
+      playFanfare();
+    }
+    return;
+  }
+
+  const firstFinisher = lanes.findIndex(lane => lane.x >= TRACK_END);
+  if (firstFinisher !== -1) {
+    winnerIndex = firstFinisher;
+    loserIndex = firstFinisher === 0 ? 1 : 0;
+    state = STATE.LEVEL_COMPLETE;
+    levelCompleteTimer = 0;
+    playFanfare();
+  }
+}
+
+function nextLevel() {
+  currentLevel++;
+  if (currentLevel >= LEVELS.length) {
+    state = STATE.CELEBRATION;
+  } else {
+    startLevel();
+  }
+}
+
+// ─── Seattle Background ───────────────────────────────────────────────────────
+function drawSeattle() {
+  // Sky — overcast Seattle grey-blue gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#2c3e6b');
+  sky.addColorStop(1, '#7a9cbf');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // Rain streaks
+  ctx.strokeStyle = 'rgba(180,210,255,0.25)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 60; i++) {
+    const rx = (i * 137 + Date.now() * 0.05) % W;
+    const ry = (i * 97 + Date.now() * 0.12) % H;
+    ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 4, ry + 18); ctx.stroke();
+  }
+
+  // Space Needle — pixel art style
+  const nx = W * 0.72, ny = 60;
+  ctx.fillStyle = '#c0c8d8';
+  // Needle tower shaft
+  ctx.fillRect(nx - 4, ny + 60, 8, 130);
+  // Top saucer
+  ctx.fillStyle = '#a0aab8';
+  ctx.fillRect(nx - 28, ny + 50, 56, 18);
+  ctx.fillRect(nx - 18, ny + 40, 36, 14);
+  ctx.fillRect(nx - 8,  ny + 28, 16, 14);
+  // Antenna
+  ctx.fillStyle = '#d0d8e8';
+  ctx.fillRect(nx - 2, ny, 4, 30);
+  // Legs
+  ctx.fillStyle = '#a0aab8';
+  ctx.fillRect(nx - 22, ny + 188, 8, 20);
+  ctx.fillRect(nx + 14, ny + 188, 8, 20);
+  ctx.fillRect(nx - 4,  ny + 188, 8, 20);
+
+  // Mount Rainier silhouette
+  ctx.fillStyle = '#3a4a6a';
+  ctx.beginPath();
+  ctx.moveTo(0, 220);
+  ctx.lineTo(120, 90);
+  ctx.lineTo(180, 130);
+  ctx.lineTo(260, 220);
+  ctx.closePath();
+  ctx.fill();
+  // Snow cap
+  ctx.fillStyle = '#dde8f5';
+  ctx.beginPath();
+  ctx.moveTo(120, 90);
+  ctx.lineTo(148, 118);
+  ctx.lineTo(130, 115);
+  ctx.lineTo(120, 130);
+  ctx.lineTo(110, 118);
+  ctx.closePath();
+  ctx.fill();
+
+  // City skyline buildings
+  const buildings = [
+    { x: 300, w: 35, h: 120, c: '#1a2540' },
+    { x: 340, w: 25, h: 90,  c: '#1e2d4e' },
+    { x: 370, w: 40, h: 140, c: '#162038' },
+    { x: 415, w: 28, h: 100, c: '#1a2540' },
+    { x: 448, w: 32, h: 80,  c: '#1e2d4e' },
+    { x: 485, w: 20, h: 110, c: '#162038' },
+    { x: 510, w: 36, h: 130, c: '#1a2540' },
+    { x: 551, w: 24, h: 75,  c: '#1e2d4e' },
+    { x: 580, w: 38, h: 95,  c: '#1a2540' },
+  ];
+  buildings.forEach(b => {
+    ctx.fillStyle = b.c;
+    ctx.fillRect(b.x, H - b.h - 80, b.w, b.h);
+    // windows
+    ctx.fillStyle = 'rgba(255,230,100,0.6)';
+    for (let wy = H - b.h - 75; wy < H - 86; wy += 14) {
+      for (let wx = b.x + 4; wx < b.x + b.w - 6; wx += 10) {
+        if (Math.random() > 0.3) ctx.fillRect(wx, wy, 5, 7);
+      }
+    }
+  });
+
+  // Ground / field
+  ctx.fillStyle = '#2a5c1e';
+  ctx.fillRect(0, H - 80, W, 80);
+  // Field lines
+  ctx.fillStyle = '#3a7a2a';
+  for (let i = 0; i < W; i += 60) {
+    ctx.fillRect(i, H - 80, 30, 80);
+  }
+  // Ground edge highlight
+  ctx.fillStyle = '#5aaa3a';
+  ctx.fillRect(0, H - 82, W, 4);
+
+  // Crowd in stadium lower edge
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, H - 85, W, 8);
+}
+
+// ─── Mexico City Background ──────────────────────────────────────────────────
+function drawMexicoCity() {
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#102a5c');
+  sky.addColorStop(0.55, '#ff7f50');
+  sky.addColorStop(1, '#f7d26a');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = 'rgba(255, 248, 210, 0.5)';
+  ctx.beginPath();
+  ctx.arc(120, 90, 34, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Distant volcano silhouettes.
+  ctx.fillStyle = '#4d325d';
+  ctx.beginPath();
+  ctx.moveTo(0, 240);
+  ctx.lineTo(110, 150);
+  ctx.lineTo(180, 240);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(120, 240);
+  ctx.lineTo(250, 125);
+  ctx.lineTo(340, 240);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#f6efe0';
+  ctx.beginPath();
+  ctx.moveTo(240, 138);
+  ctx.lineTo(258, 156);
+  ctx.lineTo(244, 154);
+  ctx.lineTo(232, 164);
+  ctx.lineTo(224, 150);
+  ctx.closePath();
+  ctx.fill();
+
+  // Zocalo-style skyline blocks.
+  const buildings = [
+    { x: 60, w: 42, h: 90, c: '#7a2d2d' },
+    { x: 110, w: 36, h: 105, c: '#8b3e2f' },
+    { x: 154, w: 52, h: 85, c: '#a34d36' },
+    { x: 215, w: 48, h: 120, c: '#6f2430' },
+    { x: 272, w: 40, h: 98, c: '#8b3e2f' },
+    { x: 320, w: 60, h: 130, c: '#5b2235' },
+    { x: 388, w: 46, h: 110, c: '#7a2d2d' },
+    { x: 444, w: 34, h: 90, c: '#9c4f3d' },
+    { x: 488, w: 56, h: 124, c: '#6f2430' }
+  ];
+  buildings.forEach(b => {
+    ctx.fillStyle = b.c;
+    ctx.fillRect(b.x, H - b.h - 80, b.w, b.h);
+    ctx.fillStyle = 'rgba(255, 236, 160, 0.55)';
+    for (let wy = H - b.h - 74; wy < H - 88; wy += 13) {
+      for (let wx = b.x + 5; wx < b.x + b.w - 5; wx += 10) {
+        ctx.fillRect(wx, wy, 4, 6);
+      }
+    }
+  });
+
+  // Angel of Independence inspired monument.
+  ctx.fillStyle = '#553344';
+  ctx.fillRect(620, H - 170, 28, 90);
+  ctx.fillStyle = '#d7b04a';
+  ctx.fillRect(630, H - 212, 8, 42);
+  ctx.fillRect(624, H - 220, 20, 10);
+  ctx.fillRect(626, H - 230, 16, 10);
+
+  // Papel picado style banners.
+  const bannerColors = ['#2ed573', '#ff4757', '#ffea00'];
+  for (let i = 0; i < 9; i++) {
+    const startX = 40 + i * 82;
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath();
+    ctx.moveTo(startX, 56 + (i % 2) * 8);
+    ctx.lineTo(startX + 58, 74 + (i % 2) * 8);
+    ctx.stroke();
+    for (let j = 0; j < 4; j++) {
+      ctx.fillStyle = bannerColors[(i + j) % bannerColors.length];
+      ctx.fillRect(startX + j * 14, 60 + (i % 2) * 8, 10, 10);
+    }
+  }
+
+  ctx.fillStyle = '#2b6f2b';
+  ctx.fillRect(0, H - 80, W, 80);
+  ctx.fillStyle = '#3b8f35';
+  for (let i = 0; i < W; i += 54) {
+    ctx.fillRect(i, H - 80, 26, 80);
+  }
+  ctx.fillStyle = '#f7f4d6';
+  ctx.fillRect(0, H - 82, W, 4);
+  ctx.fillStyle = '#1c1f30';
+  ctx.fillRect(0, H - 85, W, 8);
+}
+
+// ─── Beijing Background ──────────────────────────────────────────────────────
+function drawBeijing() {
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#1f2a44');
+  sky.addColorStop(0.58, '#b83b3b');
+  sky.addColorStop(1, '#f5a24a');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // Moon
+  ctx.fillStyle = 'rgba(250,245,220,0.7)';
+  ctx.beginPath();
+  ctx.arc(680, 85, 34, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Distant mountains
+  ctx.fillStyle = '#3d304e';
+  ctx.beginPath();
+  ctx.moveTo(0, 250);
+  ctx.lineTo(90, 170);
+  ctx.lineTo(180, 250);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(120, 250);
+  ctx.lineTo(250, 150);
+  ctx.lineTo(360, 250);
+  ctx.closePath();
+  ctx.fill();
+
+  // Great Wall inspired silhouette
+  ctx.fillStyle = '#5c4a46';
+  ctx.fillRect(20, 255, 260, 12);
+  for (let i = 0; i < 6; i++) {
+    ctx.fillRect(24 + i * 42, 242 - (i % 2) * 6, 20, 14);
+  }
+
+  // Forbidden City inspired roofline
+  ctx.fillStyle = '#6a2430';
+  ctx.fillRect(300, H - 180, 220, 70);
+  ctx.fillStyle = '#d5b253';
+  ctx.beginPath();
+  ctx.moveTo(288, H - 180);
+  ctx.lineTo(410, H - 230);
+  ctx.lineTo(532, H - 180);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#7d2f3c';
+  for (let i = 0; i < 10; i++) {
+    ctx.fillRect(312 + i * 20, H - 172, 10, 62);
+  }
+
+  // Temple gate and lanterns
+  ctx.fillStyle = '#8f2f3e';
+  ctx.fillRect(565, H - 165, 90, 55);
+  ctx.fillStyle = '#d5b253';
+  ctx.fillRect(595, H - 212, 30, 48);
+  ctx.fillStyle = '#f14646';
+  for (let i = 0; i < 4; i++) {
+    const lx = 570 + i * 24;
+    ctx.beginPath();
+    ctx.arc(lx, H - 188, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(lx - 1, H - 182, 2, 8);
+  }
+
+  // Firework pixels
+  for (let i = 0; i < 24; i++) {
+    const t = Date.now() * 0.0012;
+    const fx = 130 + ((i * 27) % 160);
+    const fy = 70 + ((i * 13) % 90);
+    const r = 8 + (i % 4) * 3;
+    const angle = t + i;
+    const px = fx + Math.cos(angle) * r;
+    const py = fy + Math.sin(angle) * r;
+    ctx.fillStyle = i % 2 === 0 ? '#ffea00' : '#ff6b81';
+    ctx.fillRect(px, py, 3, 3);
+  }
+
+  // Field
+  ctx.fillStyle = '#2f6a2f';
+  ctx.fillRect(0, H - 80, W, 80);
+  ctx.fillStyle = '#3b8538';
+  for (let i = 0; i < W; i += 56) {
+    ctx.fillRect(i, H - 80, 28, 80);
+  }
+  ctx.fillStyle = '#f6eecf';
+  ctx.fillRect(0, H - 82, W, 4);
+  ctx.fillStyle = '#1b1c2e';
+  ctx.fillRect(0, H - 85, W, 8);
+}
+
+// ─── Draw Player ─────────────────────────────────────────────────────────────
+function drawPlayer(lane, bx, by) {
+  const px = lane.x;
+  const py = lane.yCenter;
+  const shake = lane.stumble > 0 ? (Math.random() - 0.5) * 4 : 0;
+  const dx = px + shake;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(dx, py + BALL_FOOT_OFFSET_Y + 6, 14, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body (jersey)
+  ctx.fillStyle = lane.color;
+  ctx.fillRect(dx - 10, py - 20, 20, 22);
+
+  // Shorts
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(dx - 10, py + 2, 20, 10);
+
+  // Head
+  ctx.fillStyle = '#f5c88a';
+  ctx.fillRect(dx - 7, py - 34, 14, 14);
+
+  // Hair
+  ctx.fillStyle = '#5a3010';
+  ctx.fillRect(dx - 7, py - 34, 14, 5);
+
+  // Eyes
+  ctx.fillStyle = '#000';
+  ctx.fillRect(dx - 5, py - 27, 3, 3);
+  ctx.fillRect(dx + 2, py - 27, 3, 3);
+
+  // Legs
+  const kick = lane.miss ? 0 : Math.sin(lane.ballAngle) * 8;
+  ctx.fillStyle = '#f5c88a';
+  // Left leg
+  ctx.fillRect(dx - 10, py + 12, 8, 16);
+  // Right leg (kicking animation)
+  ctx.fillRect(dx + 2, py + 12 - Math.max(0, kick), 8, 16 + (kick > 0 ? 0 : 0));
+
+  // Boots
+  ctx.fillStyle = '#222';
+  ctx.fillRect(dx - 12, py + 26, 10, 6);
+  ctx.fillRect(dx + 2,  py + 26 - Math.max(0, kick), 12, 6);
+
+  // Knock­out flash on miss
+  if (lane.miss && lane.stumble > 10) {
+    ctx.fillStyle = 'rgba(255,80,80,0.35)';
+    ctx.fillRect(dx - 14, py - 36, 28, 40);
+  }
+
+  // Ball
+  const ballR = 9;
+  // Soccer ball hexagon pattern
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(bx, by, ballR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // Pentagons simplified as dark patches
+  ctx.fillStyle = '#111';
+  [[0, -5], [4, 3], [-4, 3]].forEach(([ox, oy]) => {
+    ctx.beginPath(); ctx.arc(bx + ox, by + oy, 2.5, 0, Math.PI * 2); ctx.fill();
+  });
+
+  // Sweet spot indicator ring (subtle)
+  const timing = judgeJuggleTiming(lane, currentLevel);
+  if (timing !== 'miss') {
+    ctx.strokeStyle = timing === 'sweet'
+      ? 'rgba(255,255,0,0.85)'
+      : 'rgba(0,229,255,0.65)';
+    ctx.lineWidth = timing === 'sweet' ? 2.5 : 2;
+    ctx.setLineDash(timing === 'sweet' ? [3, 3] : [2, 4]);
+    ctx.beginPath(); ctx.arc(bx, by, ballR + 5, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// ─── Draw Lane Track ──────────────────────────────────────────────────────────
+function drawTrack(lane) {
+  const ty = lane.yCenter + BALL_FOOT_OFFSET_Y + 10;
+  const laneH = numPlayers === 2 ? 160 : 320;
+  // Track background strip
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(TRACK_START - 5, ty - 2, TRACK_LENGTH + 10, 6);
+
+  // Progress bar
+  const prog = (lane.x - TRACK_START) / TRACK_LENGTH;
+  ctx.fillStyle = lane.color;
+  ctx.fillRect(TRACK_START, ty, (TRACK_LENGTH) * prog, 4);
+
+  // Start post
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(TRACK_START, ty - 10);
+  ctx.lineTo(TRACK_START, ty + 14);
+  ctx.stroke();
+
+  // Finish post
+  ctx.strokeStyle = '#ffea00';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([4,4]);
+  ctx.beginPath();
+  ctx.moveTo(TRACK_END, ty - 14);
+  ctx.lineTo(TRACK_END, ty + 18);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Streak
+  ctx.fillStyle = lane.color;
+  ctx.font = '8px "Press Start 2P"';
+  ctx.textAlign = 'left';
+  ctx.fillText(`${lane.label}: ${lane.streak} 🔥`, TRACK_START, ty - 16);
+}
+
+// ─── HUD ──────────────────────────────────────────────────────────────────────
+function drawHUD() {
+  const lvl = LEVELS[currentLevel];
+  const timeLeft = Math.max(0, lvl.timeLimit - levelTimer / 60).toFixed(1);
+  ctx.fillStyle = '#fff';
+  ctx.font = '10px "Press Start 2P"';
+  ctx.textAlign = 'center';
+  ctx.fillText(`${lvl.flag}  ${lvl.name.toUpperCase()}`, W / 2, 22);
+  ctx.fillText(`TIME: ${timeLeft}s`, W / 2, 40);
+}
+
+// ─── Title Screen ─────────────────────────────────────────────────────────────
+function drawTitle() {
+  // Background
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0a0a2a');
+  g.addColorStop(1, '#1a3a0a');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // Pixel stars
+  ctx.fillStyle = '#fff';
+  for (let i = 0; i < 80; i++) {
+    const sx = (i * 97 + 13) % W;
+    const sy = (i * 61 + 7) % (H / 2);
+    ctx.fillRect(sx, sy, i % 3 === 0 ? 2 : 1, i % 3 === 0 ? 2 : 1);
+  }
+
+  // Title
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffea00';
+  ctx.font = '22px "Press Start 2P"';
+  ctx.fillText('THE EXPERIENCE', W / 2, H / 2 - 90);
+  ctx.fillStyle = '#00e5ff';
+  ctx.fillText('OF SOCCER', W / 2, H / 2 - 58);
+
+  // Ball decoration
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(W / 2, H / 2 - 20, 18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#111';
+  [[0,-10],[8,6],[-8,6]].forEach(([ox,oy]) => {
+    ctx.beginPath(); ctx.arc(W/2+ox, H/2-20+oy, 4, 0, Math.PI*2); ctx.fill();
+  });
+
+  // Menu
+  ctx.font = '12px "Press Start 2P"';
+  ctx.fillStyle = '#fff';
+  ctx.fillText('PRESS  1  FOR 1 PLAYER', W / 2, H / 2 + 30);
+  ctx.fillStyle = '#ffea00';
+  ctx.fillText('PRESS  2  FOR 2 PLAYERS', W / 2, H / 2 + 60);
+
+  // Controls reminder
+  ctx.font = '7px "Press Start 2P"';
+  ctx.fillStyle = '#aaa';
+  ctx.fillText('P1: SPACEBAR    P2: ENTER', W / 2, H / 2 + 100);
+  ctx.fillText('PRESS KEY WHEN BALL IS AT YOUR FOOT!', W / 2, H / 2 + 122);
+
+  // Blinking prompt
+  if (Math.floor(Date.now() / 500) % 2 === 0) {
+    ctx.fillStyle = '#00e5ff';
+    ctx.font = '9px "Press Start 2P"';
+    ctx.fillText('▼  SELECT MODE  ▼', W / 2, H / 2 + 158);
+  }
+}
+
+// ─── Intro Screen ─────────────────────────────────────────────────────────────
+function drawIntro() {
+  const lvl = LEVELS[currentLevel];
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0a0a2a');
+  g.addColorStop(1, '#112211');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff';
+  ctx.font = '48px "Press Start 2P"';
+  ctx.fillText(lvl.flag, W / 2, H / 2 - 70);
+
+  ctx.font = '14px "Press Start 2P"';
+  ctx.fillStyle = '#ffea00';
+  ctx.fillText(lvl.name.toUpperCase(), W / 2, H / 2 - 20);
+
+  ctx.font = '10px "Press Start 2P"';
+  ctx.fillStyle = '#aaa';
+  ctx.fillText('LEVEL ' + (currentLevel + 1), W / 2, H / 2 + 10);
+
+  // Countdown
+  const phases = ['3', '2', '1', 'GO!'];
+  const countText = phases[countdownPhase] || '';
+  ctx.fillStyle = '#00e5ff';
+  ctx.font = '36px "Press Start 2P"';
+  ctx.fillText(countText, W / 2, H / 2 + 70);
+}
+
+// ─── Level Complete Screen ────────────────────────────────────────────────────
+function drawLevelComplete() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a3a0a');
+  g.addColorStop(1, '#0a2a0a');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffea00';
+  ctx.font = '20px "Press Start 2P"';
+  ctx.fillText(numPlayers === 2 ? 'RACE OVER!' : 'LEVEL COMPLETE!', W / 2, H / 2 - 80);
+
+  if (numPlayers === 2 && winnerIndex !== -1) {
+    ctx.fillStyle = lanes[winnerIndex].color;
+    ctx.font = '11px "Press Start 2P"';
+    ctx.fillText(`PLAYER ${winnerIndex + 1} WINS!`, W / 2, H / 2 - 48);
+    ctx.fillStyle = '#ff6b81';
+    ctx.fillText(`PLAYER ${loserIndex + 1} LOSES`, W / 2, H / 2 - 20);
+  }
+
+  ctx.fillStyle = '#00e5ff';
+  ctx.font = '10px "Press Start 2P"';
+  lanes.forEach((lane, i) => {
+    ctx.fillText(`${lane.label} JUGGLES: ${lane.totalJuggles}`, W / 2, H / 2 + (numPlayers === 2 ? 18 : -30) + i * 30);
+  });
+
+  if (currentLevel + 1 >= LEVELS.length) {
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px "Press Start 2P"';
+    ctx.fillText('PRESS SPACE/ENTER FOR CELEBRATION!', W / 2, H / 2 + 60);
+  } else {
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px "Press Start 2P"';
+    ctx.fillText('PRESS SPACE/ENTER - NEXT LEVEL', W / 2, H / 2 + 60);
+  }
+
+  // Confetti
+  for (let i = 0; i < 40; i++) {
+    const cx2 = (i * 137 + levelCompleteTimer * 3) % W;
+    const cy2 = (i * 71 + levelCompleteTimer * 2) % H;
+    const colors = ['#ffea00','#00e5ff','#ff4757','#2ed573','#ff6b81'];
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(cx2, cy2, 6, 6);
+  }
+}
+
+// ─── Celebration Screen ───────────────────────────────────────────────────────
+function drawCelebration() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#2a0a4a');
+  g.addColorStop(1, '#0a0a2a');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // Big confetti
+  for (let i = 0; i < 80; i++) {
+    const t = Date.now() / 1000;
+    const cx2 = (i * 97 + t * 40 + i * 11) % W;
+    const cy2 = (i * 61 + t * 25 * (i % 3 + 1)) % H;
+    const colors = ['#ffea00','#00e5ff','#ff4757','#2ed573','#ff6b81','#fff'];
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(cx2, cy2, 8, 8);
+  }
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffea00';
+  ctx.font = '20px "Press Start 2P"';
+  ctx.fillText('🎉 WINNER! 🎉', W / 2, H / 2 - 90);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '11px "Press Start 2P"';
+  ctx.fillText('YOU COMPLETED ALL LEVELS!', W / 2, H / 2 - 52);
+
+  ctx.font = '9px "Press Start 2P"';
+  ctx.fillStyle = '#00e5ff';
+  const grand = totalJuggles.reduce((a, b) => a + b, 0);
+  ctx.fillText(`TOTAL JUGGLES: ${grand}`, W / 2, H / 2 + 0);
+
+  if (numPlayers === 2 && winnerIndex !== -1) {
+    ctx.fillStyle = lanes[winnerIndex].color;
+    ctx.fillText(`PLAYER ${winnerIndex + 1} WINS!`, W / 2, H / 2 + 30);
+    ctx.fillStyle = '#ff6b81';
+    ctx.fillText(`PLAYER ${loserIndex + 1} LOSES`, W / 2, H / 2 + 48);
+  }
+
+  ctx.fillStyle = '#aaa';
+  ctx.font = '8px "Press Start 2P"';
+  ctx.fillText('PRESS SPACE/ENTER TO PLAY AGAIN', W / 2, H / 2 + 80);
+}
+
+// ─── Gameplay Screen ──────────────────────────────────────────────────────────
+function drawGame() {
+  // Draw background
+  LEVELS[currentLevel].bgDraw();
+
+  // Divider for 2p
+  if (numPlayers === 2) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 8]);
+    ctx.beginPath();
+    ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Draw each lane
+  lanes.forEach(lane => {
+    drawTrack(lane);
+    const { bx, by } = getBallPos(lane, currentLevel);
+    drawPlayer(lane, bx, by);
+  });
+
+  drawHUD();
+}
+
+// ─── Update Logic ─────────────────────────────────────────────────────────────
+let lastTime = 0;
+function update(timestamp) {
+  const dt = Math.min(timestamp - lastTime, 50); // cap at 50ms
+  lastTime = timestamp;
+
+  if (state === STATE.INTRO) {
+    introTimer += dt;
+    // Each countdown phase lasts 700ms, total ~3s
+    const phase = Math.floor(introTimer / 700);
+    if (phase !== countdownPhase && phase <= 3) {
+      countdownPhase = phase;
+      if (phase < 4) playCountdown();
+    }
+    if (introTimer >= 2800) beginPlay();
+    return;
+  }
+
+  if (state === STATE.PLAY) {
+    levelTimer++;
+    const lvl = LEVELS[currentLevel];
+
+    lanes.forEach(lane => {
+      // Advance ball angle
+      lane.ballAngle += (0.04 * lvl.ballSpeed);
+      if (lane.ballAngle >= Math.PI * 2) lane.ballAngle -= Math.PI * 2;
+      // Decay stumble
+      if (lane.stumble > 0) { lane.stumble--; lane.miss = lane.stumble > 0; }
+      // Reset pressed when key lifts — handled in keyup, but also auto-reset
+      // so player can't just hold the key
+      if (!keysDown[lane.key]) lane.pressed = false;
+    });
+
+    // Check if any player reached finish
+    if (numPlayers === 1 && lanes[0].x >= TRACK_END) {
+      checkLevelComplete();
+    } else if (numPlayers === 2 && lanes.some(l => l.x >= TRACK_END)) {
+      checkLevelComplete();
+    }
+
+    // Time up
+    if (levelTimer / 60 >= lvl.timeLimit && state === STATE.PLAY) {
+      // Check partial — in 1p, if player crossed finish it's already handled
+      // Otherwise restart the level progress
+      lanes.forEach(l => {
+        l.x = TRACK_START;
+        l.streak = 0;
+        l.ballAngle = 0;
+        l.miss = false;
+      });
+      levelTimer = 0;
+    }
+    return;
+  }
+
+  if (state === STATE.LEVEL_COMPLETE) {
+    levelCompleteTimer++;
+  }
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  if (state === STATE.TITLE) drawTitle();
+  else if (state === STATE.INTRO) drawIntro();
+  else if (state === STATE.PLAY) drawGame();
+  else if (state === STATE.LEVEL_COMPLETE) drawLevelComplete();
+  else if (state === STATE.CELEBRATION) drawCelebration();
+}
+
+// ─── Game Loop ────────────────────────────────────────────────────────────────
+function gameLoop(timestamp) {
+  update(timestamp);
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// Kick off
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
