@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Hot Wheel Crazy Boys</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-top: #5b636d;
+      --bg-mid: #6f7984;
+      --bg-bottom: #a8afb6;
+      --cloud: #d2d7dc;
+      --rain: rgba(196, 226, 255, 0.18);
+      --sound: #5f7894;
+      --water: #245b82;
+      --water-shine: #5ca2d4;
+      --road: #24262d;
+      --lane: #8e939e;
+      --ramp: #f66b3f;
+      --neon: #ffcc46;
+      --neon-pink: #ff6f91;
+      --neon-cyan: #58f0ff;
+      --pixel-red: #f04a3e;
+      --pixel-blue: #4f79ff;
+      --pixel-gold: #ffd95c;
+      --pixel-green: #97f581;
+      --shadow: #182028;
+      --panel: rgba(15, 18, 26, 0.9);
+      --panel-border: #f7e39a;
+      --white: #f5f3e8;
+      --black: #050608;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top, rgba(255, 222, 145, 0.16), transparent 35%),
+        linear-gradient(180deg, var(--bg-top), var(--bg-mid) 42%, var(--bg-bottom));
+      font-family: 'Press Start 2P', cursive;
+      color: var(--white);
+      overflow: hidden;
+    }
+
+    body {
+      position: relative;
+    }
+
+    body::before,
+    body::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    body::before {
+      background-image:
+        linear-gradient(to bottom, transparent 0 78%, rgba(26, 35, 44, 0.34) 78% 100%),
+        linear-gradient(120deg, transparent 0 40%, var(--rain) 40% 43%, transparent 43% 100%),
+        linear-gradient(120deg, transparent 0 60%, rgba(198, 226, 255, 0.12) 60% 63%, transparent 63% 100%);
+      background-size: 100% 100%, 18px 18px, 26px 26px;
+      animation: rainDrift 0.45s linear infinite;
+      opacity: 0.9;
+    }
+
+    body::after {
+      background:
+        linear-gradient(180deg, rgba(0, 0, 0, 0) 65%, rgba(0, 0, 0, 0.25)),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.015) 0 2px, rgba(0, 0, 0, 0.02) 2px 4px);
+      mix-blend-mode: soft-light;
+      opacity: 0.8;
+    }
+
+    @keyframes rainDrift {
+      from { transform: translate3d(0, -18px, 0); }
+      to { transform: translate3d(-10px, 18px, 0); }
+    }
+
+    #game-shell {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    #game-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .panel {
+      width: min(92vw, 980px);
+      padding: 28px 22px;
+      border: 4px solid var(--panel-border);
+      background: var(--panel);
+      box-shadow: 0 0 0 6px rgba(9, 10, 14, 0.78), 0 22px 80px rgba(0, 0, 0, 0.35);
+      text-align: center;
+      pointer-events: auto;
+    }
+
+    .title-panel {
+      background:
+        linear-gradient(180deg, rgba(27, 8, 8, 0.92), rgba(22, 15, 36, 0.9)),
+        radial-gradient(circle at 50% 0%, rgba(255, 152, 41, 0.18), transparent 45%);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    .title {
+      font-size: clamp(26px, 4vw, 56px);
+      line-height: 1.25;
+      color: #fff1bf;
+      text-shadow:
+        0 0 0 var(--black),
+        4px 4px 0 #4b1200,
+        8px 8px 0 #190400,
+        0 0 22px rgba(255, 125, 32, 0.4);
+      position: relative;
+      display: inline-block;
+      padding: 24px 12px 18px;
+    }
+
+    .title::before,
+    .title::after {
+      content: '';
+      position: absolute;
+      width: 28%;
+      height: 18px;
+      top: 0;
+      background:
+        linear-gradient(90deg, transparent 0 10%, #ffdf63 10% 18%, #ff8b3d 18% 44%, #ff463d 44% 64%, transparent 64% 100%);
+      filter: drop-shadow(0 2px 0 #2d0500);
+      animation: flameFlicker 0.35s steps(2) infinite;
+    }
+
+    .title::before {
+      left: 8%;
+      transform: skewX(-24deg);
+    }
+
+    .title::after {
+      right: 8%;
+      transform: scaleX(-1) skewX(-24deg);
+      animation-delay: 0.16s;
+    }
+
+    @keyframes flameFlicker {
+      0%, 100% { transform: translateY(0) skewX(-24deg); }
+      50% { transform: translateY(-3px) skewX(-18deg); }
+    }
+
+    .subtitle {
+      margin-top: 18px;
+      font-size: clamp(10px, 1.4vw, 14px);
+      line-height: 1.7;
+      color: #f3dcd0;
+    }
+
+    .menu-buttons,
+    .result-actions {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 28px;
+    }
+
+    button {
+      border: 0;
+      font: inherit;
+      text-transform: uppercase;
+      padding: 16px 20px;
+      background: linear-gradient(180deg, #ffd559, #f36a38);
+      color: #1a0f0a;
+      box-shadow: 0 6px 0 #8e321d, 0 0 0 4px #29140e;
+      cursor: pointer;
+      min-width: 210px;
+      transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.12s ease;
+    }
+
+    button:hover,
+    button:focus-visible {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 0 #8e321d, 0 0 0 4px #29140e;
+      filter: brightness(1.05);
+      outline: none;
+    }
+
+    button:active {
+      transform: translateY(4px);
+      box-shadow: 0 2px 0 #8e321d, 0 0 0 4px #29140e;
+    }
+
+    .controls {
+      margin-top: 24px;
+      display: grid;
+      gap: 10px;
+      font-size: 11px;
+      line-height: 1.6;
+      color: #d3e6f4;
+    }
+
+    .countdown-text,
+    .winner-banner {
+      font-size: clamp(48px, 11vw, 136px);
+      color: var(--pixel-gold);
+      text-shadow: 6px 6px 0 #7b3500, 12px 12px 0 rgba(0, 0, 0, 0.55);
+      animation: pulseText 0.6s steps(2) infinite;
+    }
+
+    @keyframes pulseText {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.06); }
+    }
+
+    .hud {
+      position: absolute;
+      inset: 18px 18px auto 18px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .hud-card {
+      width: min(46vw, 360px);
+      padding: 12px 16px;
+      background: rgba(11, 13, 20, 0.72);
+      border: 3px solid rgba(243, 220, 137, 0.92);
+      box-shadow: 0 0 0 3px rgba(8, 8, 12, 0.7);
+      line-height: 1.5;
+      font-size: 10px;
+    }
+
+    .hud-card.player1 {
+      color: #ffd1c4;
+    }
+
+    .hud-card.player2 {
+      color: #cad8ff;
+      text-align: right;
+    }
+
+    .hud strong {
+      color: var(--white);
+    }
+
+    .status-bar {
+      position: absolute;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      padding: 12px 18px;
+      min-width: min(92vw, 760px);
+      background: rgba(8, 10, 15, 0.78);
+      border: 3px solid rgba(88, 240, 255, 0.7);
+      box-shadow: 0 0 0 3px rgba(6, 6, 10, 0.72);
+      text-align: center;
+      font-size: clamp(10px, 1.3vw, 14px);
+      line-height: 1.7;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 26px;
+      font-size: 11px;
+      line-height: 1.8;
+    }
+
+    .result-card {
+      padding: 18px 14px;
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .result-card p {
+      white-space: pre-line;
+    }
+
+    .result-card h3 {
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: var(--pixel-gold);
+    }
+
+    .result-summary,
+    .winner-summary {
+      margin-top: 22px;
+      font-size: 12px;
+      line-height: 1.8;
+      color: #deefff;
+    }
+
+    .winner-panel {
+      background:
+        radial-gradient(circle at 50% 0%, rgba(255, 213, 89, 0.26), transparent 42%),
+        linear-gradient(180deg, rgba(24, 32, 72, 0.92), rgba(24, 12, 34, 0.9));
+    }
+
+    .spark-strip {
+      margin-top: 24px;
+      height: 16px;
+      background:
+        repeating-linear-gradient(90deg, #ffdb5b 0 8px, transparent 8px 14px, #58f0ff 14px 20px, transparent 20px 28px, #ff6f91 28px 36px, transparent 36px 44px);
+      animation: sparkRun 0.6s linear infinite;
+      opacity: 0.95;
+    }
+
+    @keyframes sparkRun {
+      from { background-position: 0 0; }
+      to { background-position: 44px 0; }
+    }
+
+    .tiny {
+      font-size: 9px;
+      color: #b8c9da;
+      line-height: 1.7;
+    }
+
+    @media (max-width: 900px) {
+      .result-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hud {
+        flex-direction: column;
+        inset: 12px 12px auto 12px;
+      }
+
+      .hud-card {
+        width: 100%;
+        text-align: left;
+      }
+
+      .hud-card.player2 {
+        text-align: left;
+      }
+
+      button {
+        min-width: 180px;
+      }
+
+      .status-bar {
+        min-width: auto;
+        width: calc(100vw - 24px);
+        bottom: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="game-shell">
+    <canvas id="game-canvas" width="1280" height="720" aria-label="The Hot Wheel Crazy Boys game"></canvas>
+
+    <div id="hud" class="hud hidden">
+      <div class="hud-card player1" id="hud-p1"></div>
+      <div class="hud-card player2" id="hud-p2"></div>
+    </div>
+
+    <div id="status-bar" class="status-bar hidden"></div>
+
+    <div id="title-screen" class="overlay">
+      <div class="panel title-panel">
+        <h1 class="title">THE HOT WHEEL<br />CRAZY BOYS</h1>
+        <p class="subtitle">Seattle storm skies. One giant ramp. Three rounds max.<br />Mash for tricks while your ride flies.</p>
+        <div class="menu-buttons">
+          <button data-mode="single">1 Player</button>
+          <button data-mode="two">2 Player</button>
+        </div>
+        <div class="controls">
+          <p>Player 1: SPACE during airtime to score tricks.</p>
+          <p>Player 2: ENTER during airtime to score tricks, or face the CPU in 1 Player mode.</p>
+          <p>Best of 3 rounds wins the match. Both cars launch together.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="countdown-screen" class="overlay hidden">
+      <div class="countdown-text" id="countdown-text">3</div>
+    </div>
+
+    <div id="result-screen" class="overlay hidden">
+      <div class="panel">
+        <h2 id="result-title">Round Results</h2>
+        <div class="result-grid">
+          <div class="result-card">
+            <h3>Player 1</h3>
+            <p id="result-p1"></p>
+          </div>
+          <div class="result-card">
+            <h3 id="result-p2-label">Player 2</h3>
+            <p id="result-p2"></p>
+          </div>
+        </div>
+        <p class="result-summary" id="result-summary"></p>
+        <div class="result-actions">
+          <button id="next-round-button">Next Round</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="winner-screen" class="overlay hidden">
+      <div class="panel winner-panel">
+        <div class="winner-banner" id="winner-banner">PLAYER 1 WINS!</div>
+        <p class="winner-summary" id="winner-summary"></p>
+        <div class="spark-strip"></div>
+        <div class="result-actions">
+          <button id="play-again-button">Play Again</button>
+        </div>
+        <p class="tiny">Space = Player 1 tricks. Enter = Player 2 tricks.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const canvas = document.getElementById('game-canvas');
+      const ctx = canvas.getContext('2d');
+      const titleScreen = document.getElementById('title-screen');
+      const countdownScreen = document.getElementById('countdown-screen');
+      const countdownText = document.getElementById('countdown-text');
+      const resultScreen = document.getElementById('result-screen');
+      const resultTitle = document.getElementById('result-title');
+      const resultP1 = document.getElementById('result-p1');
+      const resultP2 = document.getElementById('result-p2');
+      const resultP2Label = document.getElementById('result-p2-label');
+      const resultSummary = document.getElementById('result-summary');
+      const nextRoundButton = document.getElementById('next-round-button');
+      const winnerScreen = document.getElementById('winner-screen');
+      const winnerBanner = document.getElementById('winner-banner');
+      const winnerSummary = document.getElementById('winner-summary');
+      const playAgainButton = document.getElementById('play-again-button');
+      const hud = document.getElementById('hud');
+      const hudP1 = document.getElementById('hud-p1');
+      const hudP2 = document.getElementById('hud-p2');
+      const statusBar = document.getElementById('status-bar');
+
+      ctx.imageSmoothingEnabled = false;
+
+      const trickNames = [
+        '360!',
+        'Barrel Roll!',
+        'Sky Spin!',
+        'Turbo Twist!',
+        'Flame Flip!',
+        'Cloud Cutter!',
+        'Needle Drift!',
+        'Rain Roll!',
+        'Street Spiral!',
+        'Air Hammer!'
+      ];
+
+      const state = {
+        phase: 'title',
+        mode: 'single',
+        round: 1,
+        maxRounds: 3,
+        worldTime: 0,
+        cameraShake: 0,
+        message: 'Pick a mode and launch the match.',
+        winner: null,
+        countdownValue: 3,
+        countdownTimer: 0,
+        results: [],
+        audioUnlocked: false,
+        cpuTimer: 0,
+        players: []
+      };
+
+      const layout = {
+        width: 1280,
+        height: 720,
+        laneCenters: [258, 494],
+        roadHeight: 96,
+        roadLeft: 110,
+        roadRight: 1175,
+        jumpX: 964,
+        startX: 146,
+        skyBottom: 548,
+        waterTop: 622
+      };
+
+      let audioCtx = null;
+      let animationFrame = 0;
+
+      function makePlayer(name, color, keyLabel, keyCode, laneIndex, cpu = false) {
+        return {
+          name,
+          color,
+          keyLabel,
+          keyCode,
+          laneIndex,
+          isCpu: cpu,
+          score: 0,
+          totalTricks: 0,
+          wins: 0,
+          x: layout.startX,
+          y: layout.laneCenters[laneIndex],
+          rampTime: null,
+          airTime: 0,
+          airborne: false,
+          landed: false,
+          landFlash: 0,
+          angle: 0,
+          angularVelocity: 0,
+          bounce: 0,
+          trickPopup: '',
+          trickPopupTimer: 0,
+          trickPopups: [],
+          laneOffset: laneIndex === 0 ? -1 : 1,
+          finishDelay: 0,
+          enginePhase: Math.random() * Math.PI * 2
+        };
+      }
+
+      function resetMatch(mode) {
+        state.mode = mode;
+        state.round = 1;
+        state.results = [];
+        state.winner = null;
+        state.phase = 'title';
+        state.message = 'Pick a mode and launch the match.';
+        state.players = [
+          makePlayer('Player 1', '#f04a3e', 'SPACE', 'Space', 0, false),
+          makePlayer(mode === 'single' ? 'CPU' : 'Player 2', '#4f79ff', 'ENTER', 'Enter', 1, mode === 'single')
+        ];
+        resultP2Label.textContent = state.players[1].name;
+      }
+
+      function resetRoundState() {
+        state.players.forEach((player) => {
+          player.score = 0;
+          player.x = layout.startX;
+          player.y = layout.laneCenters[player.laneIndex];
+          player.rampTime = null;
+          player.airTime = 0;
+          player.airborne = false;
+          player.landed = false;
+          player.landFlash = 0;
+          player.angle = 0;
+          player.angularVelocity = 0;
+          player.bounce = 0;
+          player.trickPopup = '';
+          player.trickPopupTimer = 0;
+          player.trickPopups = [];
+          player.finishDelay = 0;
+        });
+        state.cpuTimer = 0;
+        state.cameraShake = 0;
+      }
+
+      function setupAudio() {
+        if (!audioCtx) {
+          const AudioContextRef = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextRef) {
+            return;
+          }
+          audioCtx = new AudioContextRef();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        state.audioUnlocked = true;
+      }
+
+      function soundEnvelope(type, frequency, duration, volume, extra = {}) {
+        if (!audioCtx || !state.audioUnlocked) {
+          return;
+        }
+        const now = audioCtx.currentTime;
+        const oscillator = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(frequency, now);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(volume, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+        filter.type = extra.filterType || 'lowpass';
+        filter.frequency.setValueAtTime(extra.filterFreq || 1400, now);
+        filter.Q.setValueAtTime(extra.q || 2, now);
+
+        oscillator.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (extra.slideTo) {
+          oscillator.frequency.exponentialRampToValueAtTime(extra.slideTo, now + duration);
+        }
+
+        oscillator.start(now);
+        oscillator.stop(now + duration + 0.05);
+      }
+
+      function noiseBurst(duration, volume, highpass = 220) {
+        if (!audioCtx || !state.audioUnlocked) {
+          return;
+        }
+        const bufferSize = Math.max(1, Math.floor(audioCtx.sampleRate * duration));
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i += 1) {
+          data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+        }
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+
+        const gain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = highpass;
+
+        gain.gain.value = volume;
+        source.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        source.start();
+      }
+
+      function playEngineRev() {
+        soundEnvelope('sawtooth', 90, 0.45, 0.05, { slideTo: 180, filterFreq: 850, q: 1 });
+        soundEnvelope('square', 50, 0.5, 0.03, { slideTo: 120, filterFreq: 500, q: 1 });
+      }
+
+      function playRampWhoosh() {
+        noiseBurst(0.35, 0.06, 400);
+        soundEnvelope('triangle', 220, 0.28, 0.05, { slideTo: 620, filterFreq: 1800, q: 2 });
+      }
+
+      function playTrickBeep(index) {
+        const base = 440 + (index % 5) * 65;
+        soundEnvelope('square', base, 0.12, 0.04, { slideTo: base * 1.3, filterFreq: 2200, q: 4 });
+      }
+
+      function playLandingCrash() {
+        noiseBurst(0.45, 0.08, 120);
+        soundEnvelope('triangle', 210, 0.25, 0.06, { slideTo: 80, filterFreq: 500, q: 1 });
+      }
+
+      function playCrowdCheer() {
+        noiseBurst(1.1, 0.04, 260);
+        soundEnvelope('sawtooth', 390, 0.55, 0.03, { slideTo: 520, filterFreq: 1400, q: 2 });
+        soundEnvelope('square', 520, 0.7, 0.025, { slideTo: 690, filterFreq: 1900, q: 3 });
+      }
+
+      function setPhase(phase) {
+        state.phase = phase;
+        titleScreen.classList.toggle('hidden', phase !== 'title');
+        countdownScreen.classList.toggle('hidden', phase !== 'countdown');
+        resultScreen.classList.toggle('hidden', phase !== 'result');
+        winnerScreen.classList.toggle('hidden', phase !== 'winner');
+        const showHud = phase === 'playing';
+        hud.classList.toggle('hidden', !showHud);
+        statusBar.classList.toggle('hidden', !showHud);
+      }
+
+      function startRound() {
+        resetRoundState();
+        state.message = 'Hold steady through the Seattle rain. Mash only while airborne.';
+        state.countdownValue = 3;
+        state.countdownTimer = 0;
+        countdownText.textContent = '3';
+        nextRoundButton.textContent = 'Next Round';
+        setPhase('countdown');
+      }
+
+      function startGameplay() {
+        resetRoundState();
+        state.message = 'Cars charging toward the giant ramp.';
+        setPhase('playing');
+        playEngineRev();
+      }
+
+      function handleLandingCompletion() {
+        const allLanded = state.players.every((player) => player.landed && player.finishDelay >= 1.2);
+        if (!allLanded || state.phase !== 'playing') {
+          return;
+        }
+
+        const p1 = state.players[0];
+        const p2 = state.players[1];
+        let roundWinner = 'Tie Round';
+        if (p1.score > p2.score) {
+          p1.wins += 1;
+          roundWinner = 'Player 1 takes the round';
+        } else if (p2.score > p1.score) {
+          p2.wins += 1;
+          roundWinner = `${p2.name} takes the round`;
+        }
+
+        state.results.push({ p1: p1.score, p2: p2.score, winner: roundWinner });
+
+        resultTitle.textContent = `Round ${state.round} Results`;
+        resultP1.textContent = `Tricks: ${p1.score}\nSeries: ${p1.wins}`;
+        resultP2.textContent = `Tricks: ${p2.score}\nSeries: ${p2.wins}`;
+        resultSummary.textContent = `${roundWinner}. Series score: Player 1 ${p1.wins} - ${p2.name} ${p2.wins}.`;
+
+        const matchWinner = p1.wins >= 2 || p2.wins >= 2 || state.round >= state.maxRounds;
+        if (matchWinner) {
+          state.winner = p1.wins === p2.wins ? (p1.totalTricks >= p2.totalTricks ? p1 : p2) : (p1.wins > p2.wins ? p1 : p2);
+          const loser = state.winner === p1 ? p2 : p1;
+          winnerBanner.textContent = `${state.winner.name.toUpperCase()} WINS!`;
+          winnerSummary.textContent = `${state.winner.name} wins the match ${state.winner.wins} to ${loser.wins} with ${state.winner.totalTricks} total tricks across ${state.round} rounds.`;
+          nextRoundButton.textContent = 'Show Winner';
+          playCrowdCheer();
+          setTimeout(() => setPhase('result'), 500);
+        } else {
+          setTimeout(() => setPhase('result'), 500);
+        }
+      }
+
+      function queueTrick(player) {
+        if (state.phase !== 'playing' || !player.airborne || player.landed) {
+          return;
+        }
+        player.score += 1;
+        player.totalTricks += 1;
+        player.angularVelocity += 0.9;
+        const trickName = trickNames[(player.score + player.laneIndex * 3) % trickNames.length];
+        player.trickPopup = trickName;
+        player.trickPopupTimer = 0.85;
+        player.trickPopups.push({ text: trickName, age: 0, xJitter: (Math.random() - 0.5) * 28 });
+        if (player.trickPopups.length > 5) {
+          player.trickPopups.shift();
+        }
+        playTrickBeep(player.score);
+      }
+
+      function triggerCpu(deltaTime) {
+        const cpu = state.players[1];
+        if (!cpu.isCpu || !cpu.airborne || cpu.landed) {
+          return;
+        }
+        state.cpuTimer -= deltaTime;
+        if (state.cpuTimer <= 0) {
+          queueTrick(cpu);
+          const pace = 0.12 + Math.random() * 0.18 + cpu.score * 0.003;
+          state.cpuTimer = Math.min(0.28, pace);
+        }
+      }
+
+      function updatePlayer(player, deltaTime) {
+        const laneCenter = layout.laneCenters[player.laneIndex];
+        const speed = player.airborne ? 0 : 268;
+        player.enginePhase += deltaTime * 10;
+
+        if (state.phase !== 'playing') {
+          player.bounce = Math.sin(state.worldTime * 2 + player.laneIndex) * 2;
+          return;
+        }
+
+        if (!player.airborne) {
+          player.x += speed * deltaTime;
+          player.bounce = Math.sin(state.worldTime * 18 + player.laneIndex * 2) * 1.6;
+          if (player.x >= layout.jumpX) {
+            player.airborne = true;
+            player.rampTime = 0;
+            player.airTime = 0;
+            player.x = layout.jumpX;
+            player.angle = -0.8;
+            player.angularVelocity = 2.1;
+            playRampWhoosh();
+            state.message = 'AIRTIME! Mash now for maximum tricks.';
+          }
+        } else if (!player.landed) {
+          player.airTime += deltaTime;
+          const airDuration = 3.45;
+          const t = Math.min(player.airTime / airDuration, 1);
+          const verticalArc = Math.sin(Math.PI * t) * 230;
+          player.x = layout.jumpX + 240 * t;
+          player.y = laneCenter - verticalArc;
+          player.angle += player.angularVelocity * deltaTime;
+          player.angularVelocity *= 0.991;
+          if (player.airTime >= airDuration) {
+            player.landed = true;
+            player.airborne = false;
+            player.y = laneCenter;
+            player.landFlash = 1;
+            player.angle = 0;
+            player.angularVelocity = 0;
+            state.cameraShake = Math.max(state.cameraShake, 10);
+            playLandingCrash();
+            state.message = `${player.name} lands with ${player.score} tricks.`;
+          }
+        } else {
+          player.finishDelay += deltaTime;
+          player.x += 120 * deltaTime;
+          player.y = laneCenter;
+          player.bounce *= 0.86;
+          player.landFlash = Math.max(0, player.landFlash - deltaTime * 2.7);
+        }
+
+        if (!player.airborne && !player.landed) {
+          player.y = laneCenter + player.bounce;
+        }
+
+        for (const popup of player.trickPopups) {
+          popup.age += deltaTime;
+        }
+        player.trickPopups = player.trickPopups.filter((popup) => popup.age < 0.95);
+        player.trickPopupTimer = Math.max(0, player.trickPopupTimer - deltaTime);
+      }
+
+      function update(deltaTime) {
+        state.worldTime += deltaTime;
+        state.cameraShake = Math.max(0, state.cameraShake - deltaTime * 20);
+
+        if (state.phase === 'countdown') {
+          state.countdownTimer += deltaTime;
+          if (state.countdownTimer >= 1) {
+            state.countdownTimer = 0;
+            state.countdownValue -= 1;
+            if (state.countdownValue > 0) {
+              countdownText.textContent = String(state.countdownValue);
+              playTrickBeep(state.countdownValue);
+            } else if (state.countdownValue === 0) {
+              countdownText.textContent = 'GO!';
+              playEngineRev();
+            } else {
+              startGameplay();
+            }
+          }
+        }
+
+        state.players.forEach((player) => updatePlayer(player, deltaTime));
+
+        if (state.phase === 'playing') {
+          triggerCpu(deltaTime);
+          handleLandingCompletion();
+        }
+
+        updateHud();
+      }
+
+      function updateHud() {
+        const p1 = state.players[0];
+        const p2 = state.players[1];
+        hudP1.innerHTML = `<strong>PLAYER 1</strong><br />Round ${state.round}/${state.maxRounds}<br />Tricks: ${p1.score}<br />Series: ${p1.wins}<br />Key: ${p1.keyLabel}`;
+        hudP2.innerHTML = `<strong>${p2.name.toUpperCase()}</strong><br />Round ${state.round}/${state.maxRounds}<br />Tricks: ${p2.score}<br />Series: ${p2.wins}<br />Key: ${p2.isCpu ? 'CPU MASH' : p2.keyLabel}`;
+        statusBar.textContent = state.message;
+      }
+
+      function drawPixelRect(x, y, w, h, fill, shade) {
+        ctx.fillStyle = fill;
+        ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+        if (shade) {
+          ctx.fillStyle = shade;
+          ctx.fillRect(Math.round(x), Math.round(y + h - 2), Math.round(w), 2);
+        }
+      }
+
+      function drawSkyline() {
+        ctx.fillStyle = '#79848f';
+        ctx.fillRect(0, 0, layout.width, layout.height);
+
+        const clouds = [
+          [130, 98, 190, 52], [370, 64, 220, 62], [720, 110, 250, 58], [980, 72, 200, 50]
+        ];
+        ctx.fillStyle = 'rgba(221, 226, 231, 0.82)';
+        for (const [x, y, w, h] of clouds) {
+          drawPixelRect(x, y, w, h, 'rgba(221, 226, 231, 0.82)');
+          drawPixelRect(x + 20, y - 18, w - 40, 18, 'rgba(233, 237, 240, 0.82)');
+        }
+
+        ctx.fillStyle = '#99a4ae';
+        ctx.beginPath();
+        ctx.moveTo(0, 360);
+        ctx.lineTo(160, 342);
+        ctx.lineTo(320, 322);
+        ctx.lineTo(470, 336);
+        ctx.lineTo(640, 302);
+        ctx.lineTo(840, 328);
+        ctx.lineTo(1020, 310);
+        ctx.lineTo(1280, 350);
+        ctx.lineTo(1280, 420);
+        ctx.lineTo(0, 420);
+        ctx.closePath();
+        ctx.fill();
+
+        drawPixelRect(1040, layout.waterTop, 240, 98, '#245b82');
+        for (let i = 0; i < 12; i += 1) {
+          drawPixelRect(1048 + i * 18, layout.waterTop + 18 + (i % 2) * 6, 12, 2, '#69b1da');
+        }
+
+        ctx.fillStyle = '#1e2530';
+        const buildings = [
+          [58, 254, 90, 190], [164, 218, 62, 226], [234, 280, 82, 164], [336, 206, 76, 238], [430, 240, 66, 204],
+          [512, 188, 96, 256], [624, 260, 78, 184], [718, 208, 68, 236], [800, 250, 84, 194], [902, 214, 62, 230], [978, 272, 58, 172]
+        ];
+        for (const [x, y, w, h] of buildings) {
+          drawPixelRect(x, y, w, h, '#1f2733', '#131921');
+          for (let wy = y + 16; wy < y + h - 12; wy += 18) {
+            for (let wx = x + 10; wx < x + w - 10; wx += 16) {
+              const lit = ((wx + wy) / 8 + Math.floor(state.worldTime * 4)) % 5 < 2;
+              drawPixelRect(wx, wy, 8, 8, lit ? (wx % 3 === 0 ? '#ffcc46' : '#58f0ff') : '#27313c');
+            }
+          }
+        }
+
+        drawSpaceNeedle(842, 172);
+        drawNeonSigns();
+      }
+
+      function drawSpaceNeedle(x, y) {
+        drawPixelRect(x + 32, y + 82, 10, 132, '#8c98a7');
+        drawPixelRect(x + 22, y + 188, 30, 16, '#727f8f');
+        drawPixelRect(x, y + 62, 74, 18, '#dfe5ea');
+        drawPixelRect(x + 8, y + 50, 58, 12, '#bac5d0');
+        drawPixelRect(x + 24, y, 18, 54, '#d6dce2');
+        drawPixelRect(x + 32, y - 28, 2, 30, '#d6dce2');
+      }
+
+      function drawNeonSigns() {
+        drawPixelRect(128, 410, 64, 18, '#32253c');
+        drawPixelRect(132, 414, 56, 10, '#ff6f91');
+        drawPixelRect(510, 398, 92, 20, '#1d2330');
+        drawPixelRect(516, 404, 80, 8, '#58f0ff');
+        drawPixelRect(684, 386, 78, 18, '#2d2120');
+        drawPixelRect(690, 392, 66, 8, '#ffcc46');
+      }
+
+      function drawRoadLane(yCenter, laneIndex) {
+        const roadTop = yCenter - layout.roadHeight / 2;
+        drawPixelRect(0, roadTop, layout.width, layout.roadHeight, '#252830');
+        drawPixelRect(0, roadTop - 8, layout.width, 8, '#5a6068');
+        drawPixelRect(0, roadTop + layout.roadHeight, layout.width, 8, '#151920');
+
+        for (let x = -40; x < layout.width; x += 80) {
+          drawPixelRect((x - state.worldTime * 180) % (layout.width + 80), yCenter - 4, 32, 8, '#d8dde4');
+        }
+
+        const weaveAmp = laneIndex === 0 ? -16 : 18;
+        ctx.strokeStyle = '#434a56';
+        ctx.lineWidth = 12;
+        ctx.beginPath();
+        ctx.moveTo(0, yCenter + 34);
+        for (let x = 0; x <= layout.width; x += 80) {
+          const curveY = yCenter + 34 + Math.sin(x / 140 + laneIndex) * 8 + (x > 700 ? weaveAmp * ((x - 700) / 500) : 0);
+          ctx.lineTo(x, curveY);
+        }
+        ctx.stroke();
+
+        drawPixelRect(layout.jumpX - 10, roadTop - 6, 64, layout.roadHeight + 14, '#cc5a39');
+        ctx.fillStyle = '#ff9e64';
+        ctx.beginPath();
+        ctx.moveTo(layout.jumpX - 10, roadTop + layout.roadHeight + 8);
+        ctx.lineTo(layout.jumpX + 54, roadTop + layout.roadHeight + 8);
+        ctx.lineTo(layout.jumpX + 54, roadTop - 44);
+        ctx.closePath();
+        ctx.fill();
+
+        drawPixelRect(layout.jumpX + 54, roadTop - 44, 8, 52, '#ffbd79');
+
+        for (let i = 0; i < 6; i += 1) {
+          const coneX = 732 + i * 62 - (state.worldTime * 180) % 62;
+          drawPixelRect(coneX, yCenter + 24, 8, 16, '#f36a38');
+          drawPixelRect(coneX - 2, yCenter + 38, 12, 4, '#fff1bf');
+        }
+      }
+
+      function drawStreetDetails(yCenter, laneIndex) {
+        const offset = (state.worldTime * 120) % 220;
+        for (let i = -1; i < 8; i += 1) {
+          const x = i * 220 - offset;
+          drawPixelRect(x + 24, yCenter - 112, 60, 26, '#2c313b');
+          drawPixelRect(x + 34, yCenter - 104, 40, 10, laneIndex === 0 ? '#ff6f91' : '#58f0ff');
+          drawPixelRect(x + 104, yCenter - 104, 8, 88, '#454f5c');
+          drawPixelRect(x + 98, yCenter - 22, 20, 6, '#6f7985');
+        }
+      }
+
+      function drawCar(player) {
+        const baseX = player.x;
+        const baseY = player.y;
+        const jitterX = (Math.random() - 0.5) * state.cameraShake;
+        const jitterY = (Math.random() - 0.5) * state.cameraShake;
+
+        ctx.save();
+        ctx.translate(baseX + jitterX, baseY + jitterY);
+        ctx.rotate(player.angle);
+
+        const bodyColor = player.color;
+        const darkShade = player.color === '#f04a3e' ? '#9e261f' : '#244ab8';
+        const lightShade = player.color === '#f04a3e' ? '#ff877c' : '#88a7ff';
+
+        drawPixelRect(-38, -14, 76, 20, bodyColor, darkShade);
+        drawPixelRect(-16, -28, 34, 16, lightShade, bodyColor);
+        drawPixelRect(18, -18, 18, 8, '#ffd95c');
+        drawPixelRect(-10, -24, 18, 8, '#d8eefb');
+        drawPixelRect(-44, -6, 12, 6, '#ffd95c');
+
+        const wheelYOffset = player.airborne ? 0 : Math.sin(state.worldTime * 26 + player.laneIndex) * 1;
+        drawPixelRect(-28, 6 + wheelYOffset, 14, 14, '#11161c');
+        drawPixelRect(12, 6 - wheelYOffset, 14, 14, '#11161c');
+        drawPixelRect(-24, 10 + wheelYOffset, 6, 6, '#aab8c8');
+        drawPixelRect(16, 10 - wheelYOffset, 6, 6, '#aab8c8');
+
+        if (!player.airborne && !player.landed) {
+          drawPixelRect(-56, -10, 12, 6, '#ffd95c');
+          drawPixelRect(-66, -8, 10, 4, '#ff8b3d');
+          drawPixelRect(-76, -6, 10, 4, '#ff453d');
+        }
+
+        if (player.landFlash > 0) {
+          const width = 74 + player.landFlash * 60;
+          drawPixelRect(-width / 2, 20, width, 4, 'rgba(240, 240, 240, 0.82)');
+          drawPixelRect(-width / 2 + 10, 24, width - 20, 3, 'rgba(160, 180, 190, 0.55)');
+        }
+
+        ctx.restore();
+
+        drawTrickBubbles(player);
+      }
+
+      function drawTrickBubbles(player) {
+        const x = player.x;
+        const y = player.y - (player.airborne ? 112 : 88);
+        if (player.airborne && player.trickPopupTimer > 0) {
+          const pulse = 1 + Math.sin(state.worldTime * 26) * 0.05;
+          ctx.save();
+          ctx.translate(x, y - player.trickPopupTimer * 10);
+          ctx.scale(pulse, pulse);
+          drawLabelBox(player.trickPopup, -72, -18, player.color === '#f04a3e' ? '#522014' : '#152452', player.color === '#f04a3e' ? '#ffd0c8' : '#cbd8ff');
+          ctx.restore();
+        }
+
+        player.trickPopups.forEach((popup, index) => {
+          const rise = popup.age * 44;
+          const alpha = 1 - popup.age / 0.95;
+          ctx.globalAlpha = Math.max(0, alpha);
+          drawLabelBox(
+            popup.text,
+            x - 60 + popup.xJitter,
+            y - 42 - rise - index * 6,
+            player.color === '#f04a3e' ? '#3c1109' : '#0e1e4c',
+            player.color === '#f04a3e' ? '#ffe0d0' : '#e4ebff'
+          );
+          ctx.globalAlpha = 1;
+        });
+      }
+
+      function drawLabelBox(text, x, y, bg, fg) {
+        const width = Math.max(84, text.length * 10 + 24);
+        drawPixelRect(x, y, width, 24, bg, '#090b10');
+        ctx.fillStyle = fg;
+        ctx.font = '12px "Press Start 2P"';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, x + 12, y + 13);
+      }
+
+      function drawScorePosts() {
+        state.players.forEach((player) => {
+          const labelY = player.laneIndex === 0 ? 176 : 560;
+          drawLabelBox(`${player.name.toUpperCase()} ${player.score}`, 40, labelY, 'rgba(7, 9, 14, 0.9)', player.color === '#f04a3e' ? '#ffd1c4' : '#cad8ff');
+        });
+      }
+
+      function render() {
+        ctx.clearRect(0, 0, layout.width, layout.height);
+        const shakeX = (Math.random() - 0.5) * state.cameraShake;
+        const shakeY = (Math.random() - 0.5) * state.cameraShake;
+        ctx.save();
+        ctx.translate(shakeX, shakeY);
+
+        drawSkyline();
+        drawStreetDetails(layout.laneCenters[0], 0);
+        drawStreetDetails(layout.laneCenters[1], 1);
+        drawRoadLane(layout.laneCenters[0], 0);
+        drawRoadLane(layout.laneCenters[1], 1);
+        state.players.forEach(drawCar);
+        drawScorePosts();
+
+        ctx.fillStyle = 'rgba(36, 91, 130, 0.35)';
+        ctx.fillRect(0, layout.waterTop - 10, layout.width, layout.height - layout.waterTop + 10);
+
+        ctx.restore();
+
+        if (state.phase === 'title') {
+          drawAttractMode();
+        }
+      }
+
+      function drawAttractMode() {
+        const t = state.worldTime;
+        const pulse = 0.7 + Math.sin(t * 3.2) * 0.18;
+        drawLabelBox('SEATTLE STUNT SHOWDOWN', 390, 628, `rgba(27, 12, 10, ${0.82 + pulse * 0.08})`, '#fff1bf');
+      }
+
+      function loop(timestamp) {
+        if (!loop.lastTimestamp) {
+          loop.lastTimestamp = timestamp;
+        }
+        const deltaTime = Math.min(0.033, (timestamp - loop.lastTimestamp) / 1000);
+        loop.lastTimestamp = timestamp;
+        update(deltaTime);
+        render();
+        animationFrame = requestAnimationFrame(loop);
+      }
+      loop.lastTimestamp = 0;
+
+      function beginMode(mode) {
+        setupAudio();
+        resetMatch(mode);
+        setPhase('countdown');
+        startRound();
+      }
+
+      function handleKeydown(event) {
+        if (event.code === 'Space' || event.code === 'Enter') {
+          event.preventDefault();
+        }
+
+        if (state.phase === 'title' && (event.code === 'Space' || event.code === 'Enter')) {
+          setupAudio();
+        }
+
+        if (state.phase !== 'playing') {
+          return;
+        }
+
+        const [p1, p2] = state.players;
+        if (event.code === p1.keyCode) {
+          queueTrick(p1);
+        }
+        if (!p2.isCpu && event.code === p2.keyCode) {
+          queueTrick(p2);
+        }
+      }
+
+      function goToNextRound() {
+        state.round += 1;
+        startRound();
+      }
+
+      document.querySelectorAll('[data-mode]').forEach((button) => {
+        button.addEventListener('click', () => beginMode(button.dataset.mode));
+      });
+
+      nextRoundButton.addEventListener('click', () => {
+        if (state.winner) {
+          setPhase('winner');
+        } else {
+          goToNextRound();
+        }
+      });
+
+      playAgainButton.addEventListener('click', () => {
+        resetMatch(state.mode);
+        setPhase('title');
+      });
+
+      window.addEventListener('keydown', handleKeydown, { passive: false });
+      window.addEventListener('pointerdown', setupAudio, { passive: true });
+
+      resetMatch('single');
+      updateHud();
+      setPhase('title');
+      animationFrame = requestAnimationFrame(loop);
+
+      window.addEventListener('beforeunload', () => {
+        cancelAnimationFrame(animationFrame);
+      });
+    })();
+  </script>
+</body>
+</html>
