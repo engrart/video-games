@@ -7,17 +7,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    height: 100%;
+  }
   body {
     background: #000;
     font-family: 'Press Start 2P', monospace;
     overflow: hidden;
-    width: 100vw; height: 100vh;
-    display: flex; align-items: center; justify-content: center;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   canvas {
     display: block;
+    width: 100vw;
+    height: 100vh;
+    max-width: 100vw;
+    max-height: 100vh;
+    object-fit: contain;
     image-rendering: pixelated;
-    border: 4px solid #fff;
   }
 </style>
 </head>
@@ -226,15 +237,20 @@ const LEVELS = [
 
 // ─── Game State ───────────────────────────────────────────────────────────────
 const STATE = { TITLE: 'title', INTRO: 'intro', PLAY: 'play', LEVEL_COMPLETE: 'level_complete', CELEBRATION: 'celebration' };
+const GAME_MODE = { CAMPAIGN: 'campaign', SINGLE_LEVEL: 'single_level' };
 let state = STATE.TITLE;
 let numPlayers = 1;
 let currentLevel = 0;
+let gameMode = GAME_MODE.CAMPAIGN;
 let totalJuggles = [0, 0];
 let introTimer = 0;
 let countdownPhase = 0; // 3,2,1,GO
 let levelCompleteTimer = 0;
 let winnerIndex = -1;
 let loserIndex = -1;
+let titleMenu = 'main';
+let titleSelectedLevel = 0;
+let titleSelectedPlayers = 1;
 
 // ─── Player Setup ─────────────────────────────────────────────────────────────
 function makeLane(yCenter, key, color, label) {
@@ -331,8 +347,29 @@ canvas.addEventListener('pointerdown', wakeTitleAudio);
 
 function handleKeyPress(k) {
   if (state === STATE.TITLE) {
-    if (k === '1') { numPlayers = 1; startGame(); }
-    if (k === '2') { numPlayers = 2; startGame(); }
+    if (titleMenu === 'main') {
+      if (k === '1') startGame({ players: 1, level: 0, mode: GAME_MODE.CAMPAIGN });
+      if (k === '2') startGame({ players: 2, level: 0, mode: GAME_MODE.CAMPAIGN });
+      if (k === 'l' || k === 'L') titleMenu = 'level_select';
+    } else if (titleMenu === 'level_select') {
+      if (k === 'Escape' || k === 'Backspace') {
+        titleMenu = 'main';
+      } else if (k === 'ArrowLeft' || k === 'ArrowRight') {
+        titleSelectedPlayers = titleSelectedPlayers === 1 ? 2 : 1;
+      } else if (k === 'ArrowUp') {
+        titleSelectedLevel = (titleSelectedLevel + LEVELS.length - 1) % LEVELS.length;
+      } else if (k === 'ArrowDown') {
+        titleSelectedLevel = (titleSelectedLevel + 1) % LEVELS.length;
+      } else if (k === '1' || k === '2' || k === '3') {
+        titleSelectedLevel = Number(k) - 1;
+      } else if (k === ' ' || k === 'Enter') {
+        startGame({
+          players: titleSelectedPlayers,
+          level: titleSelectedLevel,
+          mode: GAME_MODE.SINGLE_LEVEL
+        });
+      }
+    }
     return;
   }
   if (state === STATE.LEVEL_COMPLETE) {
@@ -378,8 +415,10 @@ document.addEventListener('keyup', e => {
 }, true);
 
 // ─── Game Flow ────────────────────────────────────────────────────────────────
-function startGame() {
-  currentLevel = 0;
+function startGame({ players = 1, level = 0, mode = GAME_MODE.CAMPAIGN } = {}) {
+  numPlayers = players;
+  currentLevel = level;
+  gameMode = mode;
   totalJuggles = [0, 0];
   winnerIndex = -1;
   loserIndex = -1;
@@ -388,6 +427,10 @@ function startGame() {
 
 function goToTitle() {
   currentLevel = 0;
+  gameMode = GAME_MODE.CAMPAIGN;
+  titleMenu = 'main';
+  titleSelectedLevel = 0;
+  titleSelectedPlayers = 1;
   syncMusicToLevel(0);
   state = STATE.TITLE;
 }
@@ -437,10 +480,10 @@ function checkLevelComplete() {
 }
 
 function nextLevel() {
-  currentLevel++;
-  if (currentLevel >= LEVELS.length) {
+  if (gameMode === GAME_MODE.SINGLE_LEVEL || currentLevel + 1 >= LEVELS.length) {
     state = STATE.CELEBRATION;
   } else {
+    currentLevel++;
     startLevel();
   }
 }
@@ -898,28 +941,69 @@ function drawTitle() {
   ctx.stroke();
   ctx.fillStyle = '#111';
   [[0,-10],[8,6],[-8,6]].forEach(([ox,oy]) => {
-    ctx.beginPath(); ctx.arc(W/2+ox, H/2-20+oy, 4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(W / 2 + ox, H / 2 - 20 + oy, 4, 0, Math.PI * 2);
+    ctx.fill();
   });
 
-  // Menu
-  ctx.font = '12px "Press Start 2P"';
-  ctx.fillStyle = '#fff';
-  ctx.fillText('PRESS  1  FOR 1 PLAYER', W / 2, H / 2 + 30);
-  ctx.fillStyle = '#ffea00';
-  ctx.fillText('PRESS  2  FOR 2 PLAYERS', W / 2, H / 2 + 60);
+  if (titleMenu === 'main') {
+    ctx.font = '12px "Press Start 2P"';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('PRESS  1  FOR 1 PLAYER TOUR', W / 2, H / 2 + 30);
+    ctx.fillStyle = '#ffea00';
+    ctx.fillText('PRESS  2  FOR 2 PLAYER TOUR', W / 2, H / 2 + 60);
+    ctx.fillStyle = '#00e5ff';
+    ctx.fillText('PRESS  L  FOR LEVEL SELECT', W / 2, H / 2 + 90);
 
-  // Controls reminder
+    ctx.font = '7px "Press Start 2P"';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('P1: SPACEBAR    P2: ENTER', W / 2, H / 2 + 124);
+    ctx.fillText('PRESS KEY WHEN BALL IS AT YOUR FOOT!', W / 2, H / 2 + 146);
+
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillStyle = '#00e5ff';
+      ctx.font = '9px "Press Start 2P"';
+      ctx.fillText('▼  PICK A MODE  ▼', W / 2, H / 2 + 178);
+    }
+    return;
+  }
+
+  const panelX = 120;
+  const panelY = H / 2 + 8;
+  const panelW = W - 240;
+  const panelH = 170;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.68)';
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+  ctx.font = '11px "Press Start 2P"';
+  ctx.fillStyle = '#ffea00';
+  ctx.fillText('LEVEL SELECT', W / 2, panelY + 26);
+
+  ctx.font = '8px "Press Start 2P"';
+  ctx.fillStyle = '#fff';
+  ctx.fillText('LEFT / RIGHT: PLAYERS', W / 2, panelY + 54);
+  ctx.fillText('UP / DOWN OR 1-3: LEVEL', W / 2, panelY + 74);
+
+  ctx.font = '10px "Press Start 2P"';
+  ctx.fillStyle = '#00e5ff';
+  ctx.fillText(`PLAYERS: ${titleSelectedPlayers}`, W / 2, panelY + 104);
+
+  LEVELS.forEach((level, index) => {
+    ctx.fillStyle = index === titleSelectedLevel ? '#ffea00' : '#d0d0d0';
+    ctx.fillText(
+      `${index + 1}. ${level.flag} ${level.name.toUpperCase()}`,
+      W / 2,
+      panelY + 132 + index * 18
+    );
+  });
+
   ctx.font = '7px "Press Start 2P"';
   ctx.fillStyle = '#aaa';
-  ctx.fillText('P1: SPACEBAR    P2: ENTER', W / 2, H / 2 + 100);
-  ctx.fillText('PRESS KEY WHEN BALL IS AT YOUR FOOT!', W / 2, H / 2 + 122);
-
-  // Blinking prompt
-  if (Math.floor(Date.now() / 500) % 2 === 0) {
-    ctx.fillStyle = '#00e5ff';
-    ctx.font = '9px "Press Start 2P"';
-    ctx.fillText('▼  SELECT MODE  ▼', W / 2, H / 2 + 158);
-  }
+  ctx.fillText('ENTER/SPACE TO START   ESC TO GO BACK', W / 2, panelY + panelH - 14);
 }
 
 // ─── Intro Screen ─────────────────────────────────────────────────────────────
@@ -979,7 +1063,7 @@ function drawLevelComplete() {
     ctx.fillText(`${lane.label} JUGGLES: ${lane.totalJuggles}`, W / 2, H / 2 + (numPlayers === 2 ? 18 : -30) + i * 30);
   });
 
-  if (currentLevel + 1 >= LEVELS.length) {
+  if (gameMode === GAME_MODE.SINGLE_LEVEL || currentLevel + 1 >= LEVELS.length) {
     ctx.fillStyle = '#fff';
     ctx.font = '11px "Press Start 2P"';
     ctx.fillText('PRESS SPACE/ENTER FOR CELEBRATION!', W / 2, H / 2 + 60);
@@ -1024,7 +1108,11 @@ function drawCelebration() {
 
   ctx.fillStyle = '#fff';
   ctx.font = '11px "Press Start 2P"';
-  ctx.fillText('YOU COMPLETED ALL LEVELS!', W / 2, H / 2 - 52);
+  if (gameMode === GAME_MODE.SINGLE_LEVEL) {
+    ctx.fillText(`YOU CONQUERED ${LEVELS[currentLevel].name.toUpperCase()}!`, W / 2, H / 2 - 52);
+  } else {
+    ctx.fillText('YOU COMPLETED ALL LEVELS!', W / 2, H / 2 - 52);
+  }
 
   ctx.font = '9px "Press Start 2P"';
   ctx.fillStyle = '#00e5ff';
