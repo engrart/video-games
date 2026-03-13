@@ -294,6 +294,31 @@
       pointer-events: none;
     }
 
+    .audio-controls {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      display: flex;
+      gap: 12px;
+      z-index: 4;
+      pointer-events: auto;
+    }
+
+    .audio-button {
+      min-width: 0;
+      padding: 10px 14px;
+      font-size: 10px;
+      box-shadow: 0 4px 0 #0f4350, 0 0 0 3px #09131c;
+      background: linear-gradient(180deg, #7ef4ff, #2a93c8);
+      color: #081118;
+    }
+
+    .audio-button.off {
+      background: linear-gradient(180deg, #8a9099, #4f5561);
+      box-shadow: 0 4px 0 #29303a, 0 0 0 3px #09131c;
+      color: #edf2f7;
+    }
+
     .result-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -388,6 +413,11 @@
   <div id="game-shell">
     <canvas id="game-canvas" width="1280" height="720" aria-label="The Hot Wheel Crazy Boys game"></canvas>
 
+    <div class="audio-controls">
+      <button id="music-toggle" class="audio-button">Music: On</button>
+      <button id="mute-toggle" class="audio-button">Sound: On</button>
+    </div>
+
     <div id="hud" class="hud hidden">
       <div class="hud-card player1" id="hud-p1"></div>
       <div class="hud-card player2" id="hud-p2"></div>
@@ -404,8 +434,8 @@
           <button data-mode="two">2 Player</button>
         </div>
         <div class="controls">
-          <p>Player 1: SPACE during airtime to score tricks.</p>
-          <p>Player 2: ENTER during airtime to score tricks, or face the CPU in 1 Player mode.</p>
+          <p>Player 1: tap SPACE to boost on the road, then mash SPACE in the air for tricks.</p>
+          <p>Player 2: tap ENTER to boost on the road, then mash ENTER in the air for tricks, or face the CPU in 1 Player mode.</p>
           <p>Best of 3 rounds wins the match. Both cars launch together.</p>
         </div>
       </div>
@@ -443,7 +473,7 @@
         <div class="result-actions">
           <button id="play-again-button">Play Again</button>
         </div>
-        <p class="tiny">Space = Player 1 tricks. Enter = Player 2 tricks.</p>
+        <p class="tiny">Tap to boost before the ramp. Mash in the air for tricks. Space = Player 1, Enter = Player 2.</p>
       </div>
     </div>
   </div>
@@ -470,6 +500,8 @@
       const hudP1 = document.getElementById('hud-p1');
       const hudP2 = document.getElementById('hud-p2');
       const statusBar = document.getElementById('status-bar');
+      const musicToggleButton = document.getElementById('music-toggle');
+      const muteToggleButton = document.getElementById('mute-toggle');
 
       ctx.imageSmoothingEnabled = false;
 
@@ -499,7 +531,10 @@
         countdownTimer: 0,
         results: [],
         audioUnlocked: false,
-        cpuTimer: 0,
+        audioMuted: false,
+        musicEnabled: true,
+        cpuBoostTimer: 0,
+        cpuTrickTimer: 0,
         players: []
       };
 
@@ -512,11 +547,45 @@
         roadRight: 1175,
         jumpX: 964,
         startX: 146,
+        perfectBoostStart: 746,
+        perfectBoostEnd: 842,
         skyBottom: 548,
         waterTop: 622
       };
 
+      const noteFrequencies = {
+        B2: 123.47,
+        C3: 130.81,
+        D3: 146.83,
+        E3: 164.81,
+        G3: 196,
+        B3: 246.94,
+        D4: 293.66,
+        E4: 329.63,
+        G4: 392,
+        A4: 440,
+        B4: 493.88,
+        D5: 587.33,
+        E5: 659.25,
+        G5: 783.99,
+        A5: 880,
+        B5: 987.77
+      };
+
+      const musicState = {
+        playing: false,
+        tempo: 168,
+        step: 0,
+        nextNoteTime: 0,
+        sequenceLength: 16,
+        lead: ['E5', null, 'G5', 'B5', 'A5', 'G5', 'E5', null, 'D5', 'E5', 'G5', 'A5', 'B5', 'A5', 'G5', 'E5'],
+        bass: ['E3', null, 'E3', null, 'C3', null, 'D3', null, 'G3', null, 'D3', null, 'C3', null, 'B2', null],
+        harmony: ['B4', null, 'D5', null, 'E5', null, 'B4', null, 'A4', null, 'B4', null, 'D5', null, 'B4', null]
+      };
+
       let audioCtx = null;
+      let sfxGain = null;
+      let musicGain = null;
       let animationFrame = 0;
 
       function makePlayer(name, color, keyLabel, keyCode, laneIndex, cpu = false) {
@@ -545,7 +614,17 @@
           trickPopups: [],
           laneOffset: laneIndex === 0 ? -1 : 1,
           finishDelay: 0,
-          enginePhase: Math.random() * Math.PI * 2
+          enginePhase: Math.random() * Math.PI * 2,
+          boostMeter: 0,
+          boostBurst: 0,
+          boostFlash: 0,
+          perfectFlash: 0,
+          lastBoostPress: -10,
+          boostPresses: 0,
+          jumpBoost: 0,
+          airDuration: 3.45,
+          boostPopup: '',
+          boostPopupTimer: 0
         };
       }
 
@@ -580,8 +659,19 @@
           player.trickPopupTimer = 0;
           player.trickPopups = [];
           player.finishDelay = 0;
+          player.boostMeter = 0;
+          player.boostBurst = 0;
+          player.boostFlash = 0;
+          player.perfectFlash = 0;
+          player.lastBoostPress = -10;
+          player.boostPresses = 0;
+          player.jumpBoost = 0;
+          player.airDuration = 3.45;
+          player.boostPopup = '';
+          player.boostPopupTimer = 0;
         });
-        state.cpuTimer = 0;
+        state.cpuBoostTimer = 0;
+        state.cpuTrickTimer = 0;
         state.cameraShake = 0;
       }
 
@@ -592,11 +682,32 @@
             return;
           }
           audioCtx = new AudioContextRef();
+          sfxGain = audioCtx.createGain();
+          musicGain = audioCtx.createGain();
+          sfxGain.gain.value = 0.92;
+          musicGain.gain.value = 0.26;
+          sfxGain.connect(audioCtx.destination);
+          musicGain.connect(audioCtx.destination);
         }
         if (audioCtx.state === 'suspended') {
           audioCtx.resume();
         }
         state.audioUnlocked = true;
+        updateAudioToggles();
+        startMusicLoop();
+      }
+
+      function updateAudioToggles() {
+        if (sfxGain) {
+          sfxGain.gain.value = state.audioMuted ? 0 : 0.92;
+        }
+        if (musicGain) {
+          musicGain.gain.value = state.audioMuted || !state.musicEnabled ? 0 : 0.26;
+        }
+        musicToggleButton.textContent = `Music: ${state.musicEnabled ? 'On' : 'Off'}`;
+        muteToggleButton.textContent = `Sound: ${state.audioMuted ? 'Off' : 'On'}`;
+        musicToggleButton.classList.toggle('off', !state.musicEnabled || state.audioMuted);
+        muteToggleButton.classList.toggle('off', state.audioMuted);
       }
 
       function soundEnvelope(type, frequency, duration, volume, extra = {}) {
@@ -620,7 +731,7 @@
 
         oscillator.connect(filter);
         filter.connect(gain);
-        gain.connect(audioCtx.destination);
+        gain.connect(extra.output || sfxGain || audioCtx.destination);
 
         if (extra.slideTo) {
           oscillator.frequency.exponentialRampToValueAtTime(extra.slideTo, now + duration);
@@ -630,10 +741,11 @@
         oscillator.stop(now + duration + 0.05);
       }
 
-      function noiseBurst(duration, volume, highpass = 220) {
+      function noiseBurst(duration, volume, highpass = 220, startTime = null, output = null) {
         if (!audioCtx || !state.audioUnlocked) {
           return;
         }
+        const when = startTime ?? audioCtx.currentTime;
         const bufferSize = Math.max(1, Math.floor(audioCtx.sampleRate * duration));
         const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
         const data = buffer.getChannelData(0);
@@ -652,8 +764,78 @@
         gain.gain.value = volume;
         source.connect(filter);
         filter.connect(gain);
-        gain.connect(audioCtx.destination);
-        source.start();
+        gain.connect(output || sfxGain || audioCtx.destination);
+        source.start(when);
+      }
+
+      function playMusicToneAtTime(type, frequency, startTime, duration, volume, extra = {}) {
+        if (!audioCtx || !state.audioUnlocked || !musicGain) {
+          return;
+        }
+        const oscillator = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(frequency, startTime);
+        if (extra.slideTo) {
+          oscillator.frequency.linearRampToValueAtTime(extra.slideTo, startTime + duration);
+        }
+
+        filter.type = extra.filterType || 'lowpass';
+        filter.frequency.setValueAtTime(extra.filterFreq || 2200, startTime);
+        filter.Q.setValueAtTime(extra.q || 1.5, startTime);
+
+        gain.gain.setValueAtTime(0.0001, startTime);
+        gain.gain.linearRampToValueAtTime(volume, startTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+        oscillator.connect(filter);
+        filter.connect(gain);
+        gain.connect(musicGain);
+        oscillator.start(startTime);
+        oscillator.stop(startTime + duration + 0.02);
+      }
+
+      function startMusicLoop() {
+        if (!audioCtx || !state.audioUnlocked || musicState.playing) {
+          return;
+        }
+        musicState.playing = true;
+        musicState.step = 0;
+        musicState.nextNoteTime = audioCtx.currentTime + 0.06;
+      }
+
+      function scheduleMusicStep(step, time) {
+        const stepDuration = 60 / musicState.tempo / 2;
+        const lead = musicState.lead[step % musicState.sequenceLength];
+        const bass = musicState.bass[step % musicState.sequenceLength];
+        const harmony = musicState.harmony[step % musicState.sequenceLength];
+
+        if (bass) {
+          playMusicToneAtTime('triangle', noteFrequencies[bass], time, stepDuration * 0.92, 0.045, { filterFreq: 900 });
+        }
+        if (lead) {
+          playMusicToneAtTime('square', noteFrequencies[lead], time, stepDuration * 0.72, 0.032, { filterFreq: 2400, q: 4 });
+        }
+        if (harmony) {
+          playMusicToneAtTime('square', noteFrequencies[harmony], time, stepDuration * 0.52, 0.015, { filterFreq: 1800, q: 3, slideTo: noteFrequencies[harmony] * 1.01 });
+        }
+        noiseBurst(stepDuration * 0.18, step % 2 === 0 ? 0.009 : 0.006, 1800, time, musicGain);
+      }
+
+      function updateMusic() {
+        if (!audioCtx || !state.audioUnlocked) {
+          return;
+        }
+        startMusicLoop();
+        const lookAhead = 0.35;
+        const stepDuration = 60 / musicState.tempo / 2;
+        while (musicState.nextNoteTime < audioCtx.currentTime + lookAhead) {
+          scheduleMusicStep(musicState.step, musicState.nextNoteTime);
+          musicState.nextNoteTime += stepDuration;
+          musicState.step = (musicState.step + 1) % musicState.sequenceLength;
+        }
       }
 
       function playEngineRev() {
@@ -669,6 +851,17 @@
       function playTrickBeep(index) {
         const base = 440 + (index % 5) * 65;
         soundEnvelope('square', base, 0.12, 0.04, { slideTo: base * 1.3, filterFreq: 2200, q: 4 });
+      }
+
+      function playBoostBeep(player) {
+        const base = player.color === '#f04a3e' ? 240 : 280;
+        const boostPitch = base + player.boostMeter * 180;
+        soundEnvelope('square', boostPitch, 0.08, 0.03, { slideTo: boostPitch * 1.18, filterFreq: 1800, q: 5 });
+      }
+
+      function playPerfectBoost() {
+        soundEnvelope('square', 520, 0.06, 0.04, { slideTo: 760, filterFreq: 2400, q: 5 });
+        soundEnvelope('triangle', 260, 0.1, 0.025, { slideTo: 390, filterFreq: 1400, q: 3 });
       }
 
       function playLandingCrash() {
@@ -695,7 +888,7 @@
 
       function startRound() {
         resetRoundState();
-        state.message = 'Hold steady through the Seattle rain. Mash only while airborne.';
+        state.message = 'Build boost on the road, then mash in the air for tricks.';
         state.countdownValue = 3;
         state.countdownTimer = 0;
         countdownText.textContent = '3';
@@ -705,7 +898,7 @@
 
       function startGameplay() {
         resetRoundState();
-        state.message = 'Cars charging toward the giant ramp.';
+        state.message = 'Tap fast on the road to boost. Once airborne, every tap is a trick.';
         setPhase('playing');
         playEngineRev();
       }
@@ -765,28 +958,67 @@
         playTrickBeep(player.score);
       }
 
-      function triggerCpu(deltaTime) {
-        const cpu = state.players[1];
-        if (!cpu.isCpu || !cpu.airborne || cpu.landed) {
+      function queueBoost(player) {
+        if (state.phase !== 'playing' || player.airborne || player.landed || player.x >= layout.jumpX) {
           return;
         }
-        state.cpuTimer -= deltaTime;
-        if (state.cpuTimer <= 0) {
+        const gap = state.worldTime - player.lastBoostPress;
+        const rapidBonus = gap < 0.19 ? 0.24 : gap < 0.28 ? 0.16 : 0.1;
+        const inPerfectWindow = player.x >= layout.perfectBoostStart && player.x <= layout.perfectBoostEnd;
+        const bonus = inPerfectWindow ? rapidBonus + 0.22 : rapidBonus;
+        player.boostMeter = Math.min(1, player.boostMeter + bonus);
+        player.boostBurst = Math.min(1, player.boostBurst + bonus * (inPerfectWindow ? 1.6 : 1.2));
+        player.boostFlash = 0.35;
+        player.perfectFlash = inPerfectWindow ? 0.65 : 0;
+        player.lastBoostPress = state.worldTime;
+        player.boostPresses += 1;
+        player.boostPopup = inPerfectWindow ? 'PERFECT BOOST!' : 'BOOST!';
+        player.boostPopupTimer = inPerfectWindow ? 0.7 : 0.35;
+        playBoostBeep(player);
+        if (inPerfectWindow) {
+          playPerfectBoost();
+          state.message = `${player.name} nails the perfect boost window!`;
+        }
+      }
+
+      function triggerCpu(deltaTime) {
+        const cpu = state.players[1];
+        if (!cpu.isCpu || cpu.landed) {
+          return;
+        }
+
+        if (!cpu.airborne) {
+          state.cpuBoostTimer -= deltaTime;
+          if (state.cpuBoostTimer <= 0 && cpu.x < layout.jumpX - 18) {
+            queueBoost(cpu);
+            state.cpuBoostTimer = 0.08 + Math.random() * 0.14;
+          }
+          return;
+        }
+
+        state.cpuTrickTimer -= deltaTime;
+        if (state.cpuTrickTimer <= 0) {
           queueTrick(cpu);
-          const pace = 0.12 + Math.random() * 0.18 + cpu.score * 0.003;
-          state.cpuTimer = Math.min(0.28, pace);
+          const pace = 0.11 + Math.random() * 0.17 + cpu.score * 0.002;
+          state.cpuTrickTimer = Math.min(0.26, pace);
         }
       }
 
       function updatePlayer(player, deltaTime) {
         const laneCenter = layout.laneCenters[player.laneIndex];
-        const speed = player.airborne ? 0 : 268;
+        const speed = player.airborne ? 0 : 260 + player.boostMeter * 120 + player.boostBurst * 190;
         player.enginePhase += deltaTime * 10;
 
         if (state.phase !== 'playing') {
           player.bounce = Math.sin(state.worldTime * 2 + player.laneIndex) * 2;
           return;
         }
+
+        player.boostFlash = Math.max(0, player.boostFlash - deltaTime * 2.6);
+        player.perfectFlash = Math.max(0, player.perfectFlash - deltaTime * 2.2);
+        player.boostMeter = Math.max(0, player.boostMeter - deltaTime * 0.12);
+        player.boostBurst = Math.max(0, player.boostBurst - deltaTime * 1.65);
+        player.boostPopupTimer = Math.max(0, player.boostPopupTimer - deltaTime);
 
         if (!player.airborne) {
           player.x += speed * deltaTime;
@@ -795,22 +1027,23 @@
             player.airborne = true;
             player.rampTime = 0;
             player.airTime = 0;
+            player.jumpBoost = Math.max(player.boostMeter, player.boostBurst * 0.9);
+            player.airDuration = 3.15 + player.jumpBoost * 0.5;
             player.x = layout.jumpX;
             player.angle = -0.8;
-            player.angularVelocity = 2.1;
+            player.angularVelocity = 2.1 + player.jumpBoost * 1.5;
             playRampWhoosh();
             state.message = 'AIRTIME! Mash now for maximum tricks.';
           }
         } else if (!player.landed) {
           player.airTime += deltaTime;
-          const airDuration = 3.45;
-          const t = Math.min(player.airTime / airDuration, 1);
-          const verticalArc = Math.sin(Math.PI * t) * 230;
-          player.x = layout.jumpX + 240 * t;
+          const t = Math.min(player.airTime / player.airDuration, 1);
+          const verticalArc = Math.sin(Math.PI * t) * (230 + player.jumpBoost * 68);
+          player.x = layout.jumpX + (240 + player.jumpBoost * 52) * t;
           player.y = laneCenter - verticalArc;
           player.angle += player.angularVelocity * deltaTime;
           player.angularVelocity *= 0.991;
-          if (player.airTime >= airDuration) {
+          if (player.airTime >= player.airDuration) {
             player.landed = true;
             player.airborne = false;
             player.y = laneCenter;
@@ -843,6 +1076,7 @@
       function update(deltaTime) {
         state.worldTime += deltaTime;
         state.cameraShake = Math.max(0, state.cameraShake - deltaTime * 20);
+        updateMusic();
 
         if (state.phase === 'countdown') {
           state.countdownTimer += deltaTime;
@@ -874,8 +1108,8 @@
       function updateHud() {
         const p1 = state.players[0];
         const p2 = state.players[1];
-        hudP1.innerHTML = `<strong>PLAYER 1</strong><br />Round ${state.round}/${state.maxRounds}<br />Tricks: ${p1.score}<br />Series: ${p1.wins}<br />Key: ${p1.keyLabel}`;
-        hudP2.innerHTML = `<strong>${p2.name.toUpperCase()}</strong><br />Round ${state.round}/${state.maxRounds}<br />Tricks: ${p2.score}<br />Series: ${p2.wins}<br />Key: ${p2.isCpu ? 'CPU MASH' : p2.keyLabel}`;
+        hudP1.innerHTML = `<strong>PLAYER 1</strong><br />Round ${state.round}/${state.maxRounds}<br />Tricks: ${p1.score}<br />Boost: ${Math.round(p1.boostMeter * 100)}%<br />Perfect Zone: Ramp Glow<br />Series: ${p1.wins}<br />Key: ${p1.keyLabel}`;
+        hudP2.innerHTML = `<strong>${p2.name.toUpperCase()}</strong><br />Round ${state.round}/${state.maxRounds}<br />Tricks: ${p2.score}<br />Boost: ${Math.round(p2.boostMeter * 100)}%<br />Perfect Zone: Ramp Glow<br />Series: ${p2.wins}<br />Key: ${p2.isCpu ? 'CPU MASH' : p2.keyLabel}`;
         statusBar.textContent = state.message;
       }
 
@@ -964,6 +1198,10 @@
         drawPixelRect(0, roadTop - 8, layout.width, 8, '#5a6068');
         drawPixelRect(0, roadTop + layout.roadHeight, layout.width, 8, '#151920');
 
+        drawPixelRect(layout.perfectBoostStart, roadTop + 8, layout.perfectBoostEnd - layout.perfectBoostStart, layout.roadHeight - 16, laneIndex === 0 ? 'rgba(255, 110, 145, 0.38)' : 'rgba(88, 240, 255, 0.32)');
+        drawPixelRect(layout.perfectBoostStart + 4, roadTop + 14, layout.perfectBoostEnd - layout.perfectBoostStart - 8, 8, '#fff1bf');
+        drawPixelRect(layout.perfectBoostStart + 10, roadTop + layout.roadHeight - 22, layout.perfectBoostEnd - layout.perfectBoostStart - 20, 6, laneIndex === 0 ? '#ff6f91' : '#58f0ff');
+
         for (let x = -40; x < layout.width; x += 80) {
           drawPixelRect((x - state.worldTime * 180) % (layout.width + 80), yCenter - 4, 32, 8, '#d8dde4');
         }
@@ -995,6 +1233,11 @@
           drawPixelRect(coneX, yCenter + 24, 8, 16, '#f36a38');
           drawPixelRect(coneX - 2, yCenter + 38, 12, 4, '#fff1bf');
         }
+
+        ctx.fillStyle = '#fff1bf';
+        ctx.font = '8px "Press Start 2P"';
+        ctx.textBaseline = 'top';
+        ctx.fillText('PERFECT', layout.perfectBoostStart + 8, roadTop - 18);
       }
 
       function drawStreetDetails(yCenter, laneIndex) {
@@ -1006,6 +1249,19 @@
           drawPixelRect(x + 104, yCenter - 104, 8, 88, '#454f5c');
           drawPixelRect(x + 98, yCenter - 22, 20, 6, '#6f7985');
         }
+      }
+
+      function drawBoostGauge(player, x, y) {
+        drawPixelRect(x, y, 178, 14, '#121720', '#090b10');
+        drawPixelRect(x + 2, y + 2, 174, 10, '#2a313d');
+        drawPixelRect(x + 2, y + 2, 174 * player.boostMeter, 10, player.color === '#f04a3e' ? '#ff8c6e' : '#78a5ff');
+        if (player.boostFlash > 0) {
+          drawPixelRect(x + 2, y + 2, 174 * Math.min(1, player.boostBurst), 4, '#fff1bf');
+        }
+        ctx.fillStyle = '#f5f3e8';
+        ctx.font = '9px "Press Start 2P"';
+        ctx.textBaseline = 'top';
+        ctx.fillText('BOOST', x + 184, y + 2);
       }
 
       function drawCar(player) {
@@ -1035,9 +1291,17 @@
         drawPixelRect(16, 10 - wheelYOffset, 6, 6, '#aab8c8');
 
         if (!player.airborne && !player.landed) {
+          const flameLength = 12 + player.boostMeter * 10 + player.boostBurst * 14;
           drawPixelRect(-56, -10, 12, 6, '#ffd95c');
-          drawPixelRect(-66, -8, 10, 4, '#ff8b3d');
-          drawPixelRect(-76, -6, 10, 4, '#ff453d');
+          drawPixelRect(-56 - flameLength, -8, flameLength, 4, '#ff8b3d');
+          drawPixelRect(-56 - flameLength - 10, -6, Math.max(8, flameLength * 0.75), 4, '#ff453d');
+          if (player.boostFlash > 0) {
+            drawPixelRect(-56 - flameLength - 18, -4, 10, 4, '#fff1bf');
+          }
+          if (player.perfectFlash > 0) {
+            drawPixelRect(-50, -34, 74, 4, '#fff1bf');
+            drawPixelRect(-38, -40, 50, 4, player.color === '#f04a3e' ? '#ff6f91' : '#58f0ff');
+          }
         }
 
         if (player.landFlash > 0) {
@@ -1054,6 +1318,18 @@
       function drawTrickBubbles(player) {
         const x = player.x;
         const y = player.y - (player.airborne ? 112 : 88);
+        if (!player.airborne && player.boostPopupTimer > 0) {
+          const alpha = Math.min(1, player.boostPopupTimer * 2);
+          ctx.globalAlpha = alpha;
+          drawLabelBox(
+            player.boostPopup,
+            x - 88,
+            y - 28 - (1 - player.boostPopupTimer) * 28,
+            player.perfectFlash > 0 ? '#4f2d08' : '#182028',
+            player.perfectFlash > 0 ? '#fff1bf' : '#c9efff'
+          );
+          ctx.globalAlpha = 1;
+        }
         if (player.airborne && player.trickPopupTimer > 0) {
           const pulse = 1 + Math.sin(state.worldTime * 26) * 0.05;
           ctx.save();
@@ -1091,6 +1367,7 @@
         state.players.forEach((player) => {
           const labelY = player.laneIndex === 0 ? 176 : 560;
           drawLabelBox(`${player.name.toUpperCase()} ${player.score}`, 40, labelY, 'rgba(7, 9, 14, 0.9)', player.color === '#f04a3e' ? '#ffd1c4' : '#cad8ff');
+          drawBoostGauge(player, 40, labelY + 30);
         });
       }
 
@@ -1144,9 +1421,25 @@
         startRound();
       }
 
+      function toggleMusic() {
+        state.musicEnabled = !state.musicEnabled;
+        setupAudio();
+        updateAudioToggles();
+      }
+
+      function toggleMute() {
+        state.audioMuted = !state.audioMuted;
+        setupAudio();
+        updateAudioToggles();
+      }
+
       function handleKeydown(event) {
         if (event.code === 'Space' || event.code === 'Enter') {
           event.preventDefault();
+        }
+
+        if (event.repeat) {
+          return;
         }
 
         if (state.phase === 'title' && (event.code === 'Space' || event.code === 'Enter')) {
@@ -1159,10 +1452,18 @@
 
         const [p1, p2] = state.players;
         if (event.code === p1.keyCode) {
-          queueTrick(p1);
+          if (p1.airborne) {
+            queueTrick(p1);
+          } else {
+            queueBoost(p1);
+          }
         }
         if (!p2.isCpu && event.code === p2.keyCode) {
-          queueTrick(p2);
+          if (p2.airborne) {
+            queueTrick(p2);
+          } else {
+            queueBoost(p2);
+          }
         }
       }
 
@@ -1174,6 +1475,9 @@
       document.querySelectorAll('[data-mode]').forEach((button) => {
         button.addEventListener('click', () => beginMode(button.dataset.mode));
       });
+
+      musicToggleButton.addEventListener('click', toggleMusic);
+      muteToggleButton.addEventListener('click', toggleMute);
 
       nextRoundButton.addEventListener('click', () => {
         if (state.winner) {
@@ -1192,6 +1496,7 @@
       window.addEventListener('pointerdown', setupAudio, { passive: true });
 
       resetMatch('single');
+      updateAudioToggles();
       updateHud();
       setPhase('title');
       animationFrame = requestAnimationFrame(loop);
