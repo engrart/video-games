@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seattle Pixel Tennis</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --sky-top: #7ec9f5;
+      --sky-mid: #9de4ff;
+      --sky-bottom: #d9f4ff;
+      --cloud: rgba(255, 255, 255, 0.75);
+      --mountain: #6f8fa6;
+      --city: #2e4052;
+      --court-a: #335f3d;
+      --court-b: #3f744a;
+      --court-line: #f7f6de;
+      --panel-bg: rgba(18, 27, 34, 0.9);
+      --panel-border: #f9c74f;
+      --text: #fff8d8;
+      --accent: #ff8c42;
+      --accent-alt: #6ad1ff;
+      --danger: #ff5e5e;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 20% 10%, rgba(255, 255, 255, 0.5), transparent 35%),
+        radial-gradient(circle at 80% 20%, rgba(255, 245, 201, 0.45), transparent 35%),
+        linear-gradient(180deg, var(--sky-top), var(--sky-mid) 50%, var(--sky-bottom));
+      font-family: 'VT323', monospace;
+      color: var(--text);
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 0.06) 0px,
+          rgba(0, 0, 0, 0.06) 2px,
+          rgba(255, 255, 255, 0.01) 2px,
+          rgba(255, 255, 255, 0.01) 4px
+        );
+      pointer-events: none;
+      mix-blend-mode: soft-light;
+      animation: scan 0.15s steps(2) infinite;
+      z-index: 5;
+    }
+
+    @keyframes scan {
+      from { transform: translateY(0); }
+      to { transform: translateY(2px); }
+    }
+
+    #game-shell {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      isolation: isolate;
+      overflow: hidden;
+    }
+
+    #game {
+      width: 100%;
+      height: 100%;
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    .hud {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      z-index: 3;
+      pointer-events: none;
+      font-family: 'Press Start 2P', cursive;
+      font-size: clamp(8px, 1.8vw, 13px);
+      text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
+    }
+
+    .hud-card {
+      background: rgba(0, 0, 0, 0.45);
+      border: 3px solid rgba(255, 248, 216, 0.8);
+      padding: 8px 10px;
+      min-width: 29%;
+      text-align: center;
+    }
+
+    #center-msg {
+      min-width: 36%;
+      color: #fff7b1;
+      animation: pulse 1s steps(2, end) infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.03); }
+    }
+
+    .controls {
+      position: absolute;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      z-index: 4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: min(92vw, 540px);
+    }
+
+    #hit-btn {
+      border: 0;
+      width: 100%;
+      padding: 16px 18px;
+      background: linear-gradient(180deg, #ffd166 0%, #ff8c42 100%);
+      color: #111;
+      font-family: 'Press Start 2P', cursive;
+      font-size: clamp(12px, 2.7vw, 18px);
+      box-shadow: 0 6px 0 #8b3c00, 0 0 0 4px #1f1208;
+      text-transform: uppercase;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.12s ease;
+    }
+
+    #hit-btn:hover,
+    #hit-btn:focus-visible {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 0 #8b3c00, 0 0 0 4px #1f1208;
+      filter: brightness(1.04);
+      outline: none;
+    }
+
+    #hit-btn:active {
+      transform: translateY(4px);
+      box-shadow: 0 2px 0 #8b3c00, 0 0 0 4px #1f1208;
+    }
+
+    .hint {
+      background: var(--panel-bg);
+      border: 2px solid var(--panel-border);
+      width: 100%;
+      padding: 8px 10px;
+      text-align: center;
+      font-family: 'Press Start 2P', cursive;
+      font-size: clamp(8px, 1.8vw, 11px);
+      line-height: 1.6;
+      color: #eaf9ff;
+    }
+
+    .modal {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 6;
+      pointer-events: none;
+    }
+
+    .panel {
+      width: min(95vw, 760px);
+      background: var(--panel-bg);
+      border: 5px solid var(--panel-border);
+      box-shadow: 0 0 0 6px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.35);
+      padding: clamp(16px, 3vw, 28px);
+      text-align: center;
+      pointer-events: auto;
+    }
+
+    h1 {
+      font-family: 'Press Start 2P', cursive;
+      font-size: clamp(16px, 4vw, 32px);
+      line-height: 1.5;
+      color: #ffe48c;
+      text-shadow: 3px 3px 0 #6b3700;
+      margin-bottom: 14px;
+    }
+
+    .sub {
+      font-size: clamp(24px, 3vw, 34px);
+      line-height: 1.25;
+      color: #d7f4ff;
+      margin-bottom: 14px;
+    }
+
+    .list {
+      text-align: left;
+      margin: 14px auto 0;
+      width: fit-content;
+      font-size: clamp(22px, 2.8vw, 30px);
+      line-height: 1.3;
+    }
+
+    .list p {
+      margin-top: 8px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 640px) {
+      .hud {
+        top: 6px;
+        left: 6px;
+        right: 6px;
+      }
+
+      .hud-card {
+        padding: 6px;
+      }
+
+      .controls {
+        bottom: 10px;
+        gap: 8px;
+      }
+
+      #hit-btn {
+        padding: 14px 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="game-shell">
+    <canvas id="game"></canvas>
+
+    <div class="hud" aria-live="polite">
+      <div class="hud-card" id="p1-score">P1 SET: 0</div>
+      <div class="hud-card" id="center-msg">PRESS HIT TO START</div>
+      <div class="hud-card" id="p2-score">P2 SET: 0</div>
+    </div>
+
+    <div class="controls">
+      <button id="hit-btn" type="button">HIT (SPACE / TAP)</button>
+      <div class="hint">Two players, one button: press when the ball reaches your side.</div>
+    </div>
+
+    <div class="modal" id="overlay">
+      <div class="panel" id="overlay-panel">
+        <h1>Seattle Pixel Tennis</h1>
+        <p class="sub">One set. First to 6 games wins.</p>
+        <div class="list">
+          <p>1. One button controls both players.</p>
+          <p>2. Time each hit near your paddle.</p>
+          <p>3. Miss and the other player takes the game.</p>
+        </div>
+        <p class="sub" style="margin-top: 16px; color: #ffcd97;">Press HIT to begin.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const p1ScoreEl = document.getElementById('p1-score');
+    const p2ScoreEl = document.getElementById('p2-score');
+    const centerMsgEl = document.getElementById('center-msg');
+    const hitBtn = document.getElementById('hit-btn');
+    const overlay = document.getElementById('overlay');
+    const overlayPanel = document.getElementById('overlay-panel');
+
+    const VIRTUAL_W = 960;
+    const VIRTUAL_H = 540;
+
+    const STATE = {
+      TITLE: 'title',
+      RALLY: 'rally',
+      POINT_PAUSE: 'point_pause',
+      SET_OVER: 'set_over'
+    };
+
+    let state = STATE.TITLE;
+    let setScore = [0, 0];
+    let rallyCount = 0;
+    let lastPointWinner = -1;
+    let pauseTimer = 0;
+    let winner = -1;
+
+    const leftPaddle = {
+      x: 82,
+      y: VIRTUAL_H / 2 - 40,
+      w: 14,
+      h: 80,
+      color: '#ff8c42'
+    };
+
+    const rightPaddle = {
+      x: VIRTUAL_W - 96,
+      y: VIRTUAL_H / 2 - 40,
+      w: 14,
+      h: 80,
+      color: '#6ad1ff'
+    };
+
+    const ball = {
+      x: VIRTUAL_W / 2,
+      y: VIRTUAL_H / 2,
+      r: 7,
+      vx: 0,
+      vy: 0,
+      speedBase: 5,
+      color: '#fff8d8'
+    };
+
+    const clouds = [
+      { x: 120, y: 72, w: 92, h: 30, speed: 0.14 },
+      { x: 420, y: 56, w: 110, h: 34, speed: 0.12 },
+      { x: 730, y: 80, w: 88, h: 28, speed: 0.16 }
+    ];
+
+    const sparks = [];
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    let musicStarted = false;
+    let musicTimer = null;
+    let melodyStep = 0;
+
+    const melody = [659, 784, 988, 784, 659, 523, 659, 784, 880, 988, 880, 784, 659, 523, 587, 659];
+    const bass = [165, 165, 196, 196, 131, 131, 147, 147, 165, 165, 196, 196, 147, 147, 131, 131];
+
+    function ensureAudio() {
+      if (!audioCtx) {
+        audioCtx = new AudioCtx();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      if (!musicStarted) {
+        startMusic();
+      }
+    }
+
+    function chip(type, freq, length, volume) {
+      if (!audioCtx || !freq) return;
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(volume, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + length);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + length + 0.02);
+    }
+
+    function startMusic() {
+      if (!audioCtx || musicStarted) return;
+      musicStarted = true;
+
+      function tick() {
+        if (!audioCtx) return;
+        chip('square', melody[melodyStep % melody.length], 0.17, 0.04);
+        chip('triangle', bass[melodyStep % bass.length], 0.18, 0.028);
+        if (melodyStep % 8 === 4) {
+          chip('square', melody[melodyStep % melody.length] / 2, 0.09, 0.015);
+        }
+        melodyStep = (melodyStep + 1) % melody.length;
+        musicTimer = window.setTimeout(tick, 185);
+      }
+
+      tick();
+    }
+
+    function sfxHit() {
+      ensureAudio();
+      chip('square', 940, 0.06, 0.08);
+      chip('triangle', 320, 0.07, 0.05);
+    }
+
+    function sfxMiss() {
+      ensureAudio();
+      chip('sawtooth', 180, 0.22, 0.08);
+    }
+
+    function sfxWin() {
+      ensureAudio();
+      const notes = [523, 659, 784, 1047];
+      notes.forEach((n, i) => {
+        window.setTimeout(() => chip('square', n, 0.16, 0.07), i * 110);
+      });
+    }
+
+    function resize() {
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function resetRally(server = Math.random() < 0.5 ? 0 : 1) {
+      ball.x = VIRTUAL_W / 2;
+      ball.y = VIRTUAL_H / 2 + (Math.random() * 80 - 40);
+      const speed = ball.speedBase + Math.min(2.2, rallyCount * 0.12);
+      ball.vx = (server === 0 ? 1 : -1) * speed;
+      ball.vy = (Math.random() * 2.4 - 1.2);
+      centerMsgEl.textContent = 'RALLY ' + (rallyCount + 1);
+      leftPaddle.y = VIRTUAL_H / 2 - leftPaddle.h / 2;
+      rightPaddle.y = VIRTUAL_H / 2 - rightPaddle.h / 2;
+    }
+
+    function launchGame() {
+      if (state === STATE.TITLE) {
+        state = STATE.RALLY;
+        overlay.classList.add('hidden');
+        setScore = [0, 0];
+        rallyCount = 0;
+        winner = -1;
+        updateScoreboard();
+        resetRally();
+      }
+    }
+
+    function updateScoreboard() {
+      p1ScoreEl.textContent = 'P1 SET: ' + setScore[0];
+      p2ScoreEl.textContent = 'P2 SET: ' + setScore[1];
+    }
+
+    function triggerSpark(x, y, color) {
+      for (let i = 0; i < 8; i++) {
+        sparks.push({
+          x,
+          y,
+          vx: (Math.random() * 4 - 2),
+          vy: (Math.random() * 4 - 2),
+          life: 20 + Math.random() * 12,
+          color
+        });
+      }
+    }
+
+    function handlePress() {
+      ensureAudio();
+
+      if (state === STATE.TITLE) {
+        launchGame();
+        return;
+      }
+
+      if (state === STATE.SET_OVER) {
+        state = STATE.TITLE;
+        overlay.classList.remove('hidden');
+        centerMsgEl.textContent = 'PRESS HIT TO START';
+        overlayPanel.innerHTML = '<h1>Seattle Pixel Tennis</h1><p class="sub">One set. First to 6 games wins.</p><div class="list"><p>1. One button controls both players.</p><p>2. Time each hit near your paddle.</p><p>3. Miss and the other player takes the game.</p></div><p class="sub" style="margin-top: 16px; color: #ffcd97;">Press HIT to begin.</p>';
+        return;
+      }
+
+      if (state !== STATE.RALLY) return;
+
+      const activeLeft = ball.vx < 0;
+      const activePaddle = activeLeft ? leftPaddle : rightPaddle;
+      const strikeX = activeLeft ? leftPaddle.x + leftPaddle.w : rightPaddle.x;
+      const distX = Math.abs(ball.x - strikeX);
+      const centerY = activePaddle.y + activePaddle.h / 2;
+      const distY = Math.abs(ball.y - centerY);
+      const windowX = 28;
+      const windowY = 52;
+
+      if (distX <= windowX && distY <= windowY) {
+        const sideSign = activeLeft ? 1 : -1;
+        const yFactor = (ball.y - centerY) / (activePaddle.h / 2);
+        ball.vx = sideSign * (Math.abs(ball.vx) + 0.3);
+        ball.vy = ball.vy * 0.55 + yFactor * 3.2;
+        rallyCount += 1;
+        centerMsgEl.textContent = 'NICE HIT!';
+        triggerSpark(ball.x, ball.y, activePaddle.color);
+        sfxHit();
+      } else {
+        const loser = activeLeft ? 0 : 1;
+        awardGame(1 - loser);
+      }
+    }
+
+    function awardGame(playerIndex) {
+      if (state !== STATE.RALLY) return;
+      setScore[playerIndex] += 1;
+      lastPointWinner = playerIndex;
+      pauseTimer = 90;
+      state = STATE.POINT_PAUSE;
+      sfxMiss();
+      centerMsgEl.textContent = playerIndex === 0 ? 'P1 WINS GAME' : 'P2 WINS GAME';
+      updateScoreboard();
+
+      if (setScore[playerIndex] >= 6) {
+        winner = playerIndex;
+      }
+    }
+
+    function update() {
+      clouds.forEach((c) => {
+        c.x += c.speed;
+        if (c.x - c.w > VIRTUAL_W + 20) {
+          c.x = -c.w - 40;
+        }
+      });
+
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const s = sparks[i];
+        s.x += s.vx;
+        s.y += s.vy;
+        s.vy += 0.08;
+        s.life -= 1;
+        if (s.life <= 0) sparks.splice(i, 1);
+      }
+
+      if (state === STATE.RALLY) {
+        const targetY = ball.y - leftPaddle.h / 2;
+        leftPaddle.y += (targetY - leftPaddle.y) * 0.16;
+        rightPaddle.y += (targetY - rightPaddle.y) * 0.16;
+
+        leftPaddle.y = Math.max(160, Math.min(VIRTUAL_H - 54 - leftPaddle.h, leftPaddle.y));
+        rightPaddle.y = Math.max(160, Math.min(VIRTUAL_H - 54 - rightPaddle.h, rightPaddle.y));
+
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        if (ball.y < 152 + ball.r) {
+          ball.y = 152 + ball.r;
+          ball.vy *= -0.9;
+        }
+
+        if (ball.y > VIRTUAL_H - 52 - ball.r) {
+          ball.y = VIRTUAL_H - 52 - ball.r;
+          ball.vy *= -0.9;
+        }
+
+        if (ball.x < -30) {
+          awardGame(1);
+        }
+
+        if (ball.x > VIRTUAL_W + 30) {
+          awardGame(0);
+        }
+      } else if (state === STATE.POINT_PAUSE) {
+        pauseTimer -= 1;
+        if (pauseTimer <= 0) {
+          if (winner !== -1) {
+            state = STATE.SET_OVER;
+            sfxWin();
+            centerMsgEl.textContent = winner === 0 ? 'P1 TAKES THE SET' : 'P2 TAKES THE SET';
+            overlay.classList.remove('hidden');
+            overlayPanel.innerHTML = '<h1>SET OVER</h1><p class="sub">' + (winner === 0 ? 'Player 1 wins Seattle!' : 'Player 2 wins Seattle!') + '</p><div class="list"><p>Final Set Score:</p><p>P1 ' + setScore[0] + ' - ' + setScore[1] + ' P2</p></div><p class="sub" style="margin-top: 16px; color: #ffcd97;">Press HIT to play another set.</p>';
+          } else {
+            state = STATE.RALLY;
+            centerMsgEl.textContent = lastPointWinner === 0 ? 'P1 TO SERVE' : 'P2 TO SERVE';
+            resetRally(lastPointWinner);
+          }
+        }
+      }
+    }
+
+    function pixelRect(x, y, w, h, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+    }
+
+    function drawCloud(x, y, w, h) {
+      pixelRect(x, y, w, h, 'rgba(255,255,255,0.75)');
+      pixelRect(x + w * 0.15, y - h * 0.4, w * 0.28, h * 0.45, 'rgba(255,255,255,0.82)');
+      pixelRect(x + w * 0.47, y - h * 0.55, w * 0.33, h * 0.58, 'rgba(255,255,255,0.85)');
+    }
+
+    function drawSeattleSkyline() {
+      pixelRect(0, 0, VIRTUAL_W, VIRTUAL_H, '#8dd4ff');
+      pixelRect(0, 100, VIRTUAL_W, 60, '#b6ebff');
+
+      clouds.forEach((c) => drawCloud(c.x, c.y, c.w, c.h));
+
+      pixelRect(0, 116, VIRTUAL_W, 44, '#6f8fa6');
+      pixelRect(70, 108, 160, 52, '#5f7f95');
+      pixelRect(220, 120, 180, 40, '#7699af');
+      pixelRect(640, 112, 210, 48, '#64879d');
+
+      pixelRect(0, 160, VIRTUAL_W, 52, '#2e4052');
+
+      const buildings = [
+        [20, 170, 44, 42], [70, 152, 38, 60], [116, 162, 24, 50], [150, 144, 42, 68],
+        [196, 166, 30, 46], [234, 146, 36, 66], [278, 154, 32, 58], [318, 148, 42, 64],
+        [366, 164, 28, 48], [402, 150, 30, 62], [440, 170, 34, 42], [482, 146, 36, 66],
+        [526, 158, 28, 54], [562, 146, 32, 66], [600, 162, 26, 50], [634, 144, 36, 68],
+        [676, 152, 32, 60], [714, 166, 30, 46], [752, 142, 40, 70], [798, 154, 30, 58],
+        [836, 166, 30, 46], [874, 148, 36, 64]
+      ];
+
+      buildings.forEach((b) => pixelRect(b[0], b[1], b[2], b[3], '#22313d'));
+
+      pixelRect(460, 118, 12, 90, '#d6e0e8');
+      pixelRect(448, 116, 36, 10, '#e8eff4');
+      pixelRect(444, 106, 44, 10, '#dbe7ee');
+      pixelRect(463, 92, 6, 14, '#cdd7de');
+      pixelRect(462, 80, 8, 12, '#b9c7d2');
+    }
+
+    function drawCourt() {
+      pixelRect(0, 212, VIRTUAL_W, VIRTUAL_H - 212, '#2e6c3f');
+      pixelRect(0, 212, VIRTUAL_W, 14, '#3f7e4d');
+
+      const courtY = 240;
+      const courtH = 250;
+      pixelRect(90, courtY, VIRTUAL_W - 180, courtH, '#3a7848');
+
+      ctx.strokeStyle = '#f7f6de';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(90, courtY, VIRTUAL_W - 180, courtH);
+
+      ctx.beginPath();
+      ctx.moveTo(VIRTUAL_W / 2, courtY);
+      ctx.lineTo(VIRTUAL_W / 2, courtY + courtH);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(90, courtY + courtH / 2);
+      ctx.lineTo(VIRTUAL_W - 90, courtY + courtH / 2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(90, courtY + 68);
+      ctx.lineTo(VIRTUAL_W - 90, courtY + 68);
+      ctx.moveTo(90, courtY + courtH - 68);
+      ctx.lineTo(VIRTUAL_W - 90, courtY + courtH - 68);
+      ctx.stroke();
+
+      pixelRect(VIRTUAL_W / 2 - 2, courtY + 12, 4, courtH - 24, '#f7f6de');
+    }
+
+    function drawPaddlesAndBall() {
+      pixelRect(leftPaddle.x, leftPaddle.y, leftPaddle.w, leftPaddle.h, leftPaddle.color);
+      pixelRect(rightPaddle.x, rightPaddle.y, rightPaddle.w, rightPaddle.h, rightPaddle.color);
+
+      pixelRect(ball.x - ball.r, ball.y - ball.r, ball.r * 2, ball.r * 2, ball.color);
+      pixelRect(ball.x - 2, ball.y - 2, 4, 4, '#ff8c42');
+
+      sparks.forEach((s) => {
+        ctx.globalAlpha = Math.max(0, s.life / 24);
+        pixelRect(s.x, s.y, 4, 4, s.color);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function draw() {
+      const scale = Math.min(window.innerWidth / VIRTUAL_W, window.innerHeight / VIRTUAL_H);
+      const drawW = VIRTUAL_W * scale;
+      const drawH = VIRTUAL_H * scale;
+      const offX = (window.innerWidth - drawW) / 2;
+      const offY = (window.innerHeight - drawH) / 2;
+
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      ctx.save();
+      ctx.translate(offX, offY);
+      ctx.scale(scale, scale);
+
+      drawSeattleSkyline();
+      drawCourt();
+      drawPaddlesAndBall();
+
+      ctx.restore();
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function onPressEvent(e) {
+      e.preventDefault();
+      handlePress();
+    }
+
+    hitBtn.addEventListener('click', onPressEvent);
+    hitBtn.addEventListener('touchstart', onPressEvent, { passive: false });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' || e.code === 'Enter') {
+        e.preventDefault();
+        handlePress();
+      }
+    });
+
+    window.addEventListener('resize', resize);
+
+    resize();
+    resetRally();
+    loop();
+  </script>
+</body>
+</html>
