@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Sight Words Adventure 🌟</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --yellow: #FFD93D;
+      --blue: #4ECDC4;
+      --coral: #FF6B6B;
+      --green: #6BCB77;
+      --purple: #A855F7;
+      --bg-from: #667eea;
+      --bg-to: #764ba2;
+      --white: #FFFBF0;
+      --dark: #2D3748;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      font-family: 'Nunito', sans-serif;
+      background: linear-gradient(135deg, var(--bg-from) 0%, var(--bg-to) 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 16px;
+      overflow-x: hidden;
+    }
+
+    #app {
+      width: 100%;
+      max-width: 560px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding-top: 12px;
+    }
+
+    /* ── Progress ── */
+    #progress-container { width: 100%; display: none; }
+    #progress-container.visible { display: block; }
+
+    #progress-label {
+      font-family: 'Fredoka One', cursive;
+      color: white;
+      font-size: 18px;
+      text-align: center;
+      margin-bottom: 8px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.25);
+    }
+
+    #progress-track {
+      height: 20px;
+      background: rgba(255,255,255,0.25);
+      border-radius: 50px;
+      overflow: hidden;
+      border: 3px solid rgba(255,255,255,0.4);
+    }
+
+    #progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--yellow), var(--coral));
+      border-radius: 50px;
+      transition: width 0.5s ease;
+      width: 0%;
+    }
+
+    /* ── Screens ── */
+    .screen { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+    .screen.hidden { display: none; }
+
+    /* ── Card ── */
+    .card {
+      background: white;
+      border-radius: 28px;
+      padding: 28px 24px;
+      width: 100%;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 0 0 4px rgba(255,255,255,0.25);
+      text-align: center;
+    }
+
+    /* ── Mascot ── */
+    .mascot {
+      font-size: 76px;
+      line-height: 1;
+      user-select: none;
+      transition: transform 0.2s ease;
+    }
+    .mascot.bounce { animation: mascotBounce 0.6s ease; }
+    .mascot.shake  { animation: mascotShake 0.5s ease; }
+
+    /* ── Speech Bubble ── */
+    .speech-bubble {
+      background: var(--blue);
+      color: white;
+      border-radius: 20px;
+      padding: 12px 22px;
+      font-size: 20px;
+      font-weight: 800;
+      position: relative;
+      max-width: 420px;
+      text-align: center;
+      box-shadow: 0 4px 14px rgba(78,205,196,0.45);
+    }
+    .speech-bubble::before {
+      content: '';
+      position: absolute;
+      top: -11px; left: 50%;
+      transform: translateX(-50%);
+      border: 11px solid transparent;
+      border-bottom-color: var(--blue);
+      border-top: none;
+    }
+
+    /* ── Big Word ── */
+    .word-display {
+      font-family: 'Fredoka One', cursive;
+      font-size: clamp(68px, 15vw, 112px);
+      color: var(--coral);
+      text-shadow: 4px 4px 0 rgba(255,107,107,0.25);
+      line-height: 1;
+      letter-spacing: 2px;
+      animation: wordPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    /* ── Mic Button ── */
+    #mic-btn {
+      background: var(--coral);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 120px; height: 120px;
+      font-size: 38px;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(255,107,107,0.5);
+      transition: transform 0.15s, box-shadow 0.15s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+    }
+    #mic-btn .mic-label { font-size: 12px; font-weight: 900; letter-spacing: 1px; }
+    #mic-btn:hover { transform: scale(1.06); }
+    #mic-btn:active { transform: scale(0.94); }
+    #mic-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    #mic-btn.listening { animation: micPulse 1.4s ease-in-out infinite; background: #e53e3e; }
+
+    /* ── Status ── */
+    #recognition-status {
+      font-size: 20px; font-weight: 700;
+      color: white; text-align: center;
+      min-height: 28px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.25);
+    }
+
+    /* ── Error ── */
+    #error-msg {
+      background: rgba(255,255,255,0.2);
+      border-radius: 16px;
+      padding: 14px 20px;
+      color: white;
+      font-size: 18px; font-weight: 700;
+      text-align: center;
+      display: none;
+    }
+
+    /* ── Info sections ── */
+    .info-block {
+      background: var(--white);
+      border-radius: 18px;
+      padding: 16px 20px;
+      border: 3px solid var(--yellow);
+      text-align: left;
+    }
+    .info-block + .info-block { margin-top: 12px; }
+    .info-label {
+      font-family: 'Fredoka One', cursive;
+      font-size: 13px;
+      color: var(--purple);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+    .info-text { font-size: 21px; font-weight: 700; color: var(--dark); line-height: 1.4; }
+    .info-example { font-size: 20px; font-weight: 600; color: var(--dark); font-style: italic; line-height: 1.5; }
+    .word-hl { color: var(--coral); font-style: normal; font-weight: 900; text-decoration: underline; }
+
+    /* ── Buttons ── */
+    .btn {
+      font-family: 'Fredoka One', cursive;
+      font-size: 24px;
+      padding: 15px 40px;
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      box-shadow: 0 6px 0 rgba(0,0,0,0.2);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .btn:hover  { transform: translateY(-2px); box-shadow: 0 8px 0 rgba(0,0,0,0.2); }
+    .btn:active { transform: translateY(2px);  box-shadow: 0 2px 0 rgba(0,0,0,0.2); }
+    .btn-green  { background: var(--green);  color: white; }
+    .btn-yellow { background: var(--yellow); color: var(--dark); }
+
+    /* ── Sentence challenge ── */
+    #sentence-prompt {
+      font-family: 'Fredoka One', cursive;
+      font-size: 23px;
+      color: white;
+      text-align: center;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.25);
+      line-height: 1.4;
+    }
+    #sentence-prompt .target-word { color: var(--yellow); font-size: 28px; }
+
+    .sentence-option {
+      background: white;
+      border: 4px solid transparent;
+      border-radius: 20px;
+      padding: 18px 22px;
+      font-size: 22px; font-weight: 700;
+      color: var(--dark);
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+      line-height: 1.4;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+      transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+    }
+    .sentence-option:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--blue); box-shadow: 0 6px 20px rgba(78,205,196,0.3); }
+    .sentence-option.correct  { border-color: var(--green);  background: #f0fff4; animation: optionPop 0.35s ease; }
+    .sentence-option.incorrect{ border-color: var(--coral);  background: #fff5f5; animation: optionShake 0.4s ease; }
+    .sentence-option:disabled { cursor: default; }
+
+    /* ── Loading ── */
+    .loading { display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,0.85); font-size: 18px; font-weight: 700; justify-content: center; }
+    .spinner { width: 26px; height: 26px; border: 4px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+
+    /* ── Summary ── */
+    .summary-title { font-family: 'Fredoka One', cursive; font-size: 44px; color: white; text-shadow: 0 3px 0 rgba(0,0,0,0.2); text-align: center; }
+    .stars-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .star { font-size: 52px; animation: starPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
+    .star.dim { filter: grayscale(1) opacity(0.35); }
+    .summary-card { background: white; border-radius: 24px; padding: 22px 28px; width: 100%; text-align: center; }
+    .summary-stat { font-family: 'Fredoka One', cursive; font-size: 26px; color: var(--purple); }
+
+    /* ── Sparkles overlay ── */
+    #sparkles { position: fixed; inset: 0; pointer-events: none; z-index: 999; overflow: hidden; }
+    .sparkle { position: absolute; font-size: 30px; animation: sparkleFly 1.2s ease-out forwards; pointer-events: none; }
+
+    /* ── Animations ── */
+    @keyframes wordPop {
+      0%   { transform: scale(0.4); opacity: 0; }
+      80%  { transform: scale(1.08); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes micPulse {
+      0%,100% { box-shadow: 0 6px 20px rgba(229,62,62,0.5), 0 0 0 0 rgba(229,62,62,0.35); }
+      50%     { box-shadow: 0 6px 20px rgba(229,62,62,0.5), 0 0 0 22px rgba(229,62,62,0); }
+    }
+    @keyframes mascotBounce {
+      0%,100% { transform: translateY(0) scale(1); }
+      35%     { transform: translateY(-22px) scale(1.12); }
+      65%     { transform: translateY(-8px) scale(1.05); }
+    }
+    @keyframes mascotShake {
+      0%,100% { transform: translateX(0); }
+      20%     { transform: translateX(-10px); }
+      40%     { transform: translateX(10px); }
+      60%     { transform: translateX(-7px); }
+      80%     { transform: translateX(7px); }
+    }
+    @keyframes optionPop   { 0%,100%{transform:scale(1)} 50%{transform:scale(1.03)} }
+    @keyframes optionShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)} }
+    @keyframes sparkleFly  { 0%{transform:translateY(0) scale(1) rotate(0deg);opacity:1} 100%{transform:translateY(-160px) scale(0.2) rotate(360deg);opacity:0} }
+    @keyframes starPop {
+      0%   { transform: scale(0) rotate(-30deg); opacity: 0; }
+      70%  { transform: scale(1.3) rotate(10deg); }
+      100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    @keyframes spin    { to { transform: rotate(360deg); } }
+    @keyframes fadeUp  { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+    .fade-up { animation: fadeUp 0.35s ease both; }
+  </style>
+</head>
+<body>
+<div id="sparkles"></div>
+<div id="app">
+
+  <!-- Progress -->
+  <div id="progress-container">
+    <div id="progress-label">⭐ Word 1 of 5</div>
+    <div id="progress-track"><div id="progress-fill"></div></div>
+  </div>
+
+  <!-- Screen 1: Word Card -->
+  <div id="screen-word-card" class="screen">
+    <div class="mascot" id="mascot-1">🦊</div>
+    <div class="speech-bubble" id="bubble-1">Get ready!</div>
+    <div class="card">
+      <div class="word-display" id="word-display">—</div>
+    </div>
+    <button id="mic-btn" onclick="startListening()">
+      <span>🎤</span>
+      <span class="mic-label">SAY IT!</span>
+    </button>
+    <div id="recognition-status"></div>
+    <div id="error-msg">🎙️ Microphone access is needed to play!<br>Please click Allow when your browser asks.</div>
+  </div>
+
+  <!-- Screen 2: Word Info -->
+  <div id="screen-word-info" class="screen hidden">
+    <div class="mascot" id="mascot-2">🦊</div>
+    <div class="speech-bubble" id="bubble-2">Great job! Here's what it means!</div>
+    <div class="card">
+      <div class="word-display" id="word-display-2" style="margin-bottom:20px">—</div>
+      <div id="loading-info" class="loading"><div class="spinner"></div> Loading word info…</div>
+      <div id="word-info-content" style="display:none">
+        <div class="info-block">
+          <div class="info-label">What it means</div>
+          <div class="info-text" id="info-definition"></div>
+        </div>
+        <div class="info-block" style="margin-top:12px">
+          <div class="info-label">In a sentence</div>
+          <div class="info-example" id="info-example"></div>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-green" onclick="goToSentenceChallenge()">Next →</button>
+  </div>
+
+  <!-- Screen 3: Sentence Challenge -->
+  <div id="screen-sentence-challenge" class="screen hidden">
+    <div class="mascot" id="mascot-3">🦊</div>
+    <div id="sentence-prompt">
+      Which sentence has the word <span class="target-word" id="prompt-word">—</span> in it?
+    </div>
+    <div id="loading-sentences" class="loading"><div class="spinner"></div> Making sentences…</div>
+    <div id="sentence-options" style="width:100%;display:flex;flex-direction:column;gap:12px"></div>
+  </div>
+
+  <!-- Screen 4: Summary -->
+  <div id="screen-summary" class="screen hidden">
+    <div class="mascot" id="mascot-summary">🥳</div>
+    <div class="summary-title">Adventure Complete!</div>
+    <div class="stars-row" id="stars-row"></div>
+    <div class="summary-card">
+      <div class="summary-stat" id="summary-stat"></div>
+    </div>
+    <button class="btn btn-yellow" onclick="startSession()">Play Again! 🎮</button>
+  </div>
+
+</div><!-- #app -->
+
+<script>
+// ─────────────────────────────────────────────
+// CONFIG  (edit these to customize the game)
+// ─────────────────────────────────────────────
+const CONFIG = {
+  ANTHROPIC_API_KEY: null,   // filled in on init from localStorage / prompt()
+  WORD_LIST: [
+    'a','and','away','big','blue','can','come','down','find','for',
+    'funny','go','help','here','I','in','is','it','jump','little',
+    'look','make','me','my','not','one','play','red','run','said',
+    'see','the','three','to','two','up','we','where','yellow','you'
+  ],
+  WORDS_PER_SESSION: 5,
+};
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let state = {
+  sessionWords: [],
+  currentIndex: 0,
+  wordData: null,   // { definition, example_sentence, part_of_speech, sentences[], correct_index }
+  stars: 0,
+  listening: false,
+};
+
+// ─────────────────────────────────────────────
+// AUDIO  (Web Audio API — no files needed)
+// ─────────────────────────────────────────────
+let _audioCtx = null;
+function ac() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return _audioCtx;
+}
+
+function tone(freq, dur, type = 'sine', vol = 0.28) {
+  const ctx = ac();
+  const osc = ctx.createOscillator();
+  const g   = ctx.createGain();
+  osc.connect(g); g.connect(ctx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, ctx.currentTime);
+  g.gain.setValueAtTime(vol, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+  osc.start(ctx.currentTime);
+  osc.stop(ctx.currentTime + dur);
+}
+
+function playCorrect() { [523,659,784,1047].forEach((f,i) => setTimeout(() => tone(f, 0.28), i * 95)); }
+function playWrong()   { tone(220, 0.28, 'sawtooth', 0.14); setTimeout(() => tone(196, 0.22, 'sawtooth', 0.1), 150); }
+function playWoohoo()  { [392,523,659,784,1047,1175].forEach((f,i) => setTimeout(() => tone(f, 0.22), i * 75)); }
+function playMicPip()  { tone(880, 0.08, 'sine', 0.18); }
+
+// ─────────────────────────────────────────────
+// SPEECH SYNTHESIS
+// ─────────────────────────────────────────────
+function speak(text, onEnd) {
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.85; u.pitch = 1.1; u.volume = 1;
+  if (onEnd) u.onend = onEnd;
+  window.speechSynthesis.speak(u);
+}
+
+// ─────────────────────────────────────────────
+// CLAUDE API
+// ─────────────────────────────────────────────
+async function callClaude(prompt, maxTokens = 400) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': CONFIG.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const d = await res.json();
+  return d.content[0].text;
+}
+
+async function checkPronunciation(word, transcript) {
+  const prompt = `The target sight word is '${word}'. The child said '${transcript}'. Is this close enough to be considered correct for a 6-year-old kindergartner? Account for common child speech patterns. Reply with ONLY valid JSON: { "correct": true/false, "encouragement": "short friendly message" }`;
+  const raw = await callClaude(prompt, 150);
+  return JSON.parse(extractJSON(raw));
+}
+
+async function fetchWordData(word) {
+  const prompt = `Create content for a kindergarten sight word game for the word '${word}'. Reply with ONLY valid JSON with no markdown:
+{
+  "definition": "simple 1-sentence definition a 6-year-old can understand",
+  "example_sentence": "short example sentence using the word",
+  "part_of_speech": "noun, verb, adjective, etc.",
+  "sentences": [
+    "sentence that CONTAINS the word ${word}",
+    "sentence that does NOT contain the word",
+    "sentence that does NOT contain the word"
+  ],
+  "correct_index": 0
+}
+Shuffle the sentences array and update correct_index to reflect which sentence contains '${word}'. Keep sentences very short (5-8 words). Use simple vocabulary.`;
+  const raw = await callClaude(prompt, 400);
+  const data = JSON.parse(extractJSON(raw));
+  // Validate / fix correct_index client-side as safety net
+  const ci = findCorrectSentence(data.sentences, word);
+  if (ci !== -1) data.correct_index = ci;
+  if (data.correct_index === undefined || data.correct_index < 0) data.correct_index = 0;
+  return data;
+}
+
+function extractJSON(text) {
+  const m = text.match(/\{[\s\S]*\}/);
+  return m ? m[0] : text.trim();
+}
+
+function findCorrectSentence(sentences, word) {
+  const w = word.toLowerCase();
+  const re = new RegExp(`(?:^|[^a-z])(${w})(?:[^a-z]|$)`, 'i');
+  for (let i = 0; i < sentences.length; i++) {
+    if (re.test(sentences[i])) return i;
+  }
+  return -1;
+}
+
+// ─────────────────────────────────────────────
+// SPARKLES
+// ─────────────────────────────────────────────
+function spawnSparkles(n = 10) {
+  const c = document.getElementById('sparkles');
+  const pool = ['⭐','✨','🌟','💫','🎉','🎊','🌈'];
+  for (let i = 0; i < n; i++) {
+    setTimeout(() => {
+      const el = document.createElement('div');
+      el.className = 'sparkle';
+      el.textContent = pool[Math.floor(Math.random() * pool.length)];
+      el.style.left = (Math.random() * 95) + 'vw';
+      el.style.top  = (20 + Math.random() * 70) + 'vh';
+      el.style.animationDelay = (Math.random() * 0.25) + 's';
+      c.appendChild(el);
+      setTimeout(() => el.remove(), 1600);
+    }, i * 70);
+  }
+}
+
+// ─────────────────────────────────────────────
+// MASCOT HELPERS
+// ─────────────────────────────────────────────
+const EMOJI = { happy:'🦊', thinking:'🤔', celebrate:'🥳', oops:'😅', listen:'👂' };
+
+function setMascot(id, mood) {
+  const el = document.getElementById('mascot-' + id);
+  if (!el) return;
+  el.textContent = EMOJI[mood] || EMOJI.happy;
+  el.classList.remove('bounce','shake');
+  void el.offsetWidth;
+  if (mood === 'celebrate') el.classList.add('bounce');
+  if (mood === 'oops')      el.classList.add('shake');
+}
+
+function setBubble(id, text) {
+  const el = document.getElementById('bubble-' + id);
+  if (el) el.textContent = text;
+}
+
+// ─────────────────────────────────────────────
+// PROGRESS
+// ─────────────────────────────────────────────
+function updateProgress() {
+  document.getElementById('progress-container').classList.add('visible');
+  const pct = (state.currentIndex / state.sessionWords.length) * 100;
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-label').textContent =
+    `⭐ Word ${state.currentIndex + 1} of ${state.sessionWords.length}`;
+}
+
+// ─────────────────────────────────────────────
+// SCREEN SWITCHING
+// ─────────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+  const el = document.getElementById('screen-' + id);
+  el.classList.remove('hidden');
+  el.classList.add('fade-up');
+  setTimeout(() => el.classList.remove('fade-up'), 400);
+}
+
+// ─────────────────────────────────────────────
+// SCREEN 1 — WORD CARD
+// ─────────────────────────────────────────────
+function showWordCard() {
+  const word = state.sessionWords[state.currentIndex];
+  document.getElementById('word-display').textContent = word.toUpperCase();
+  document.getElementById('recognition-status').textContent = '';
+  document.getElementById('error-msg').style.display = 'none';
+  const btn = document.getElementById('mic-btn');
+  btn.classList.remove('listening');
+  btn.disabled = false;
+  setMascot(1, 'happy');
+  setBubble(1, `Your word is: ${word}!`);
+  updateProgress();
+  showScreen('word-card');
+  setTimeout(() => speak(`Your word is: ${word}. Now YOU say it!`), 350);
+}
+
+// ─────────────────────────────────────────────
+// SPEECH RECOGNITION
+// ─────────────────────────────────────────────
+function startListening() {
+  if (state.listening) return;
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    setStatus('Speech recognition only works in Chrome. Please use Chrome!');
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+  playMicPip();
+
+  const rec = new SR();
+  rec.lang = 'en-US';
+  rec.interimResults = false;
+  rec.maxAlternatives = 3;
+  state.listening = true;
+
+  const btn = document.getElementById('mic-btn');
+  btn.classList.add('listening');
+  btn.disabled = true;
+  setMascot(1, 'listen');
+  setBubble(1, "I'm listening! 👂");
+  setStatus('🎙️ Listening…');
+
+  rec.onresult = async (e) => {
+    state.listening = false;
+    btn.classList.remove('listening');
+    btn.disabled = false;
+    const transcript = Array.from(e.results[0]).map(r => r.transcript).join(' ');
+    await handleTranscript(transcript);
+  };
+
+  rec.onerror = (e) => {
+    state.listening = false;
+    btn.classList.remove('listening');
+    btn.disabled = false;
+    if (e.error === 'not-allowed') {
+      document.getElementById('error-msg').style.display = 'block';
+      setStatus('');
+    } else if (e.error === 'no-speech') {
+      setMascot(1, 'thinking');
+      setBubble(1, "I didn't hear anything! Try again!");
+      setStatus('');
+    } else {
+      setMascot(1, 'thinking');
+      setBubble(1, 'Hmm, try again!');
+      setStatus('');
+    }
+  };
+
+  rec.onend = () => { state.listening = false; btn.classList.remove('listening'); btn.disabled = false; };
+  rec.start();
+}
+
+function setStatus(msg) { document.getElementById('recognition-status').textContent = msg; }
+
+async function handleTranscript(transcript) {
+  const word = state.sessionWords[state.currentIndex];
+
+  if (!transcript.trim()) {
+    setMascot(1, 'thinking');
+    setBubble(1, 'Say it out loud! I need to hear you!');
+    return;
+  }
+
+  setStatus(`I heard: "${transcript}"`);
+  setMascot(1, 'thinking');
+  setBubble(1, 'Let me check…');
+
+  let correct = false;
+  let encouragement = '';
+
+  try {
+    const res = await checkPronunciation(word, transcript);
+    correct = res.correct;
+    encouragement = res.encouragement || '';
+  } catch (_) {
+    correct = localCheck(word, transcript);
+    encouragement = correct ? 'Great job! 🎉' : 'Almost! Give it another try!';
+  }
+
+  if (correct) {
+    playCorrect();
+    spawnSparkles(8);
+    setMascot(1, 'celebrate');
+    setBubble(1, encouragement);
+    state.stars++;
+    // Pre-fetch enrichment while showing celebration
+    state.wordData = null;
+    fetchWordData(word).then(d => { state.wordData = d; }).catch(() => {});
+    setTimeout(() => showWordInfo(), 1300);
+  } else {
+    playWrong();
+    setMascot(1, 'oops');
+    setBubble(1, encouragement || 'Try again! You can do it! 💪');
+    setStatus('');
+  }
+}
+
+function localCheck(word, transcript) {
+  const t = transcript.toLowerCase().replace(/[^a-z ]/g, '');
+  const w = word.toLowerCase();
+  return t.split(/\s+/).some(tok => tok === w || levenshtein(tok, w) <= 1);
+}
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({length: m+1}, (_,i) => Array.from({length: n+1}, (_,j) => i ? (j ? 0 : i) : j));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+  return dp[m][n];
+}
+
+// ─────────────────────────────────────────────
+// SCREEN 2 — WORD INFO
+// ─────────────────────────────────────────────
+function showWordInfo() {
+  const word = state.sessionWords[state.currentIndex];
+  document.getElementById('word-display-2').textContent = word.toUpperCase();
+  document.getElementById('loading-info').style.display = 'flex';
+  document.getElementById('word-info-content').style.display = 'none';
+  setMascot(2, 'happy');
+  setBubble(2, 'Great job! Here's what it means!');
+  showScreen('word-info');
+
+  // Poll until data arrives (pre-fetched) or timeout
+  let waited = 0;
+  const poll = setInterval(() => {
+    waited += 200;
+    if (state.wordData) {
+      clearInterval(poll);
+      renderWordInfo(state.wordData);
+    } else if (waited >= 9000) {
+      clearInterval(poll);
+      renderWordInfoFallback(word);
+    }
+  }, 200);
+}
+
+function hlWord(sentence, word) {
+  const re = new RegExp(`(?<=[^a-zA-Z]|^)(${word})(?=[^a-zA-Z]|$)`, 'gi');
+  return sentence.replace(re, '<span class="word-hl">$1</span>');
+}
+
+function renderWordInfo(data) {
+  document.getElementById('loading-info').style.display = 'none';
+  document.getElementById('word-info-content').style.display = 'block';
+  const word = state.sessionWords[state.currentIndex];
+  document.getElementById('info-definition').textContent = data.definition;
+  document.getElementById('info-example').innerHTML = hlWord(data.example_sentence, word);
+  speak(`${data.definition}  For example: ${data.example_sentence}`);
+}
+
+function renderWordInfoFallback(word) {
+  document.getElementById('loading-info').style.display = 'none';
+  document.getElementById('word-info-content').style.display = 'block';
+  document.getElementById('info-definition').textContent = `"${word}" is a very important sight word!`;
+  document.getElementById('info-example').textContent = `Practice saying: "${word}"`;
+  speak(`"${word}" is a very important sight word!`);
+}
+
+function goToSentenceChallenge() {
+  window.speechSynthesis.cancel();
+  showSentenceChallenge();
+}
+
+// ─────────────────────────────────────────────
+// SCREEN 3 — SENTENCE CHALLENGE
+// ─────────────────────────────────────────────
+function showSentenceChallenge() {
+  const word = state.sessionWords[state.currentIndex];
+  document.getElementById('prompt-word').textContent = word.toUpperCase();
+  document.getElementById('sentence-options').innerHTML = '';
+  document.getElementById('loading-sentences').style.display = 'flex';
+  setMascot(3, 'thinking');
+  showScreen('sentence-challenge');
+  speak(`Which sentence has the word: ${word}?`);
+
+  if (state.wordData && state.wordData.sentences) {
+    renderSentenceOptions(state.wordData);
+  } else {
+    const word2 = word;
+    fetchWordData(word2)
+      .then(d => { state.wordData = d; renderSentenceOptions(d); })
+      .catch(() => {
+        document.getElementById('loading-sentences').innerHTML =
+          '<span style="color:white;font-size:18px;font-weight:700">Hmm, skipping this one…</span>';
+        setTimeout(() => advanceWord(), 2000);
+      });
+  }
+}
+
+function renderSentenceOptions(data) {
+  document.getElementById('loading-sentences').style.display = 'none';
+  const wrap = document.getElementById('sentence-options');
+  data.sentences.forEach((s, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'sentence-option fade-up';
+    btn.style.animationDelay = (i * 0.1) + 's';
+    btn.textContent = s;
+    btn.onclick = () => handleChoice(btn, i, data);
+    wrap.appendChild(btn);
+  });
+}
+
+function handleChoice(btn, index, data) {
+  const isCorrect = index === data.correct_index;
+  document.querySelectorAll('.sentence-option').forEach(b => { b.disabled = true; });
+
+  if (isCorrect) {
+    btn.classList.add('correct');
+    const word = state.sessionWords[state.currentIndex];
+    btn.innerHTML = hlWord(btn.textContent, word);
+    playCorrect();
+    spawnSparkles(16);
+    setMascot(3, 'celebrate');
+    speak('Yes! That is right! Amazing!');
+    setTimeout(() => advanceWord(), 2000);
+  } else {
+    btn.classList.add('incorrect');
+    playWrong();
+    setMascot(3, 'oops');
+    speak('Hmm, not that one! Try again!');
+    setTimeout(() => {
+      document.querySelectorAll('.sentence-option').forEach(b => {
+        if (!b.classList.contains('incorrect')) { b.disabled = false; }
+      });
+      setMascot(3, 'thinking');
+    }, 1000);
+  }
+}
+
+// ─────────────────────────────────────────────
+// ADVANCE
+// ─────────────────────────────────────────────
+function advanceWord() {
+  state.currentIndex++;
+  state.wordData = null;
+  if (state.currentIndex >= state.sessionWords.length) showSummary();
+  else showWordCard();
+}
+
+// ─────────────────────────────────────────────
+// SCREEN 4 — SUMMARY
+// ─────────────────────────────────────────────
+function showSummary() {
+  document.getElementById('progress-container').classList.remove('visible');
+  showScreen('summary');
+  playWoohoo();
+  spawnSparkles(22);
+
+  const total  = state.sessionWords.length;
+  const earned = state.stars;
+  const row    = document.getElementById('stars-row');
+  row.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const s = document.createElement('div');
+    s.className = 'star' + (i < earned ? '' : ' dim');
+    s.textContent = '⭐';
+    s.style.animationDelay = (i * 0.14) + 's';
+    row.appendChild(s);
+  }
+  document.getElementById('summary-stat').textContent =
+    earned === total
+      ? `🏆 Perfect score! ${earned}/${total} stars!`
+      : `You earned ${earned} out of ${total} stars!`;
+
+  speak(`Adventure complete! You earned ${earned} stars! Great reading!`);
+}
+
+// ─────────────────────────────────────────────
+// SESSION START
+// ─────────────────────────────────────────────
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function startSession() {
+  state.sessionWords = shuffle(CONFIG.WORD_LIST).slice(0, CONFIG.WORDS_PER_SESSION);
+  state.currentIndex = 0;
+  state.wordData = null;
+  state.stars = 0;
+  document.getElementById('progress-container').classList.add('visible');
+  showWordCard();
+}
+
+// ─────────────────────────────────────────────
+// KEYBOARD
+// ─────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (!document.getElementById('screen-word-card').classList.contains('hidden')) {
+      startListening();
+    }
+  }
+});
+
+// ─────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────
+function init() {
+  let key = localStorage.getItem('swa_api_key');
+  if (!key) {
+    key = prompt(
+      'Welcome to Sight Words Adventure! 🦊\n\n' +
+      'Enter your Anthropic API key to start playing.\n' +
+      '(It will be saved in your browser for next time.)'
+    );
+    if (!key || !key.trim()) {
+      document.body.innerHTML = `
+        <div style="font-family:Nunito,sans-serif;color:white;text-align:center;padding:40px;font-size:22px">
+          <div style="font-size:80px;margin-bottom:16px">🦊</div>
+          <p>An API key is needed to play!</p>
+          <button onclick="location.reload()"
+            style="margin-top:20px;padding:14px 32px;font-size:20px;border-radius:50px;border:none;
+                   background:#FFD93D;cursor:pointer;font-family:'Fredoka One',cursive">
+            Try Again
+          </button>
+        </div>`;
+      return;
+    }
+    localStorage.setItem('swa_api_key', key.trim());
+  }
+  CONFIG.ANTHROPIC_API_KEY = key.trim();
+  startSession();
+}
+
+init();
+</script>
+</body>
+</html>
