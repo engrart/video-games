@@ -298,8 +298,26 @@
     <div id="progress-track"><div id="progress-fill"></div></div>
   </div>
 
+  <!-- Screen: Mic Permission -->
+  <div id="screen-mic-perm" class="screen hidden">
+    <div class="mascot">🦊</div>
+    <div class="speech-bubble">I need your microphone!</div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center;gap:20px">
+      <div style="font-size:64px">🎙️</div>
+      <p style="font-size:19px;font-weight:700;color:var(--dark);text-align:center;line-height:1.7">
+        Chrome will ask for microphone access.<br>
+        Please tap <span style="color:var(--green)">"Allow while visiting the site"</span>
+        so you won't be asked again!
+      </p>
+      <button class="btn btn-green" id="btn-grant-mic" onclick="grantMicAndStart()" style="width:100%;font-size:22px">
+        Allow Microphone 🎤
+      </button>
+      <div id="mic-perm-status" style="font-size:16px;font-weight:700;color:var(--coral);min-height:22px;text-align:center"></div>
+    </div>
+  </div>
+
   <!-- Screen 1: Word Card -->
-  <div id="screen-word-card" class="screen">
+  <div id="screen-word-card" class="screen hidden">
     <div class="mascot" id="mascot-1">🦊</div>
     <div class="speech-bubble" id="bubble-1">Get ready!</div>
     <div class="card">
@@ -331,7 +349,7 @@
         </div>
       </div>
     </div>
-    <button class="btn btn-green" onclick="goToSentenceChallenge()">Next →</button>
+    <button id="btn-next-word" class="btn btn-green" onclick="goToSentenceChallenge()">Next →</button>
   </div>
 
   <!-- Screen 3: Sentence Challenge -->
@@ -342,6 +360,29 @@
     </div>
     <div id="loading-sentences" class="loading"><div class="spinner"></div> Making sentences…</div>
     <div id="sentence-options" style="width:100%;display:flex;flex-direction:column;gap:12px"></div>
+  </div>
+
+  <!-- Screen 0: Welcome / API key -->
+  <div id="screen-welcome" class="screen">
+    <div class="mascot">🦊</div>
+    <div class="speech-bubble">Hi! I'm Finn the Fox! Let's read!</div>
+    <div class="card" style="gap:16px;display:flex;flex-direction:column;align-items:center">
+      <div style="font-family:'Fredoka One',cursive;font-size:32px;color:var(--coral)">Sight Words Adventure</div>
+      <p style="font-size:17px;font-weight:700;color:var(--dark);line-height:1.5;text-align:left;width:100%">
+        Enter your Anthropic API key to play. It stays in your browser and is never sent anywhere except to Anthropic.
+      </p>
+      <input id="api-key-input" type="password" placeholder="sk-ant-…"
+        style="width:100%;font-size:18px;font-family:'Nunito',sans-serif;font-weight:700;
+               padding:14px 18px;border-radius:16px;border:3px solid var(--blue);outline:none;
+               color:var(--dark);background:var(--white);"
+        autocomplete="off" spellcheck="false" />
+      <div id="api-key-error" style="color:var(--coral);font-size:16px;font-weight:700;display:none">
+        Please enter a valid API key (starts with sk-ant-).
+      </div>
+      <button class="btn btn-green" style="width:100%;font-size:22px" onclick="submitApiKey()">
+        Start Playing! 🎮
+      </button>
+    </div>
   </div>
 
   <!-- Screen 4: Summary -->
@@ -378,9 +419,12 @@ const CONFIG = {
 let state = {
   sessionWords: [],
   currentIndex: 0,
-  wordData: null,   // { definition, example_sentence, part_of_speech, sentences[], correct_index }
+  wordData: null,
   stars: 0,
   listening: false,
+  listenTimer: null,
+  rec: null,       // one continuous SpeechRecognition for the whole session
+  recActive: false,
 };
 
 // ─────────────────────────────────────────────
@@ -445,7 +489,7 @@ async function callClaude(prompt, maxTokens = 400) {
 }
 
 async function checkPronunciation(word, transcript) {
-  const prompt = `The target sight word is '${word}'. The child said '${transcript}'. Is this close enough to be considered correct for a 6-year-old kindergartner? Account for common child speech patterns. Reply with ONLY valid JSON: { "correct": true/false, "encouragement": "short friendly message" }`;
+  const prompt = `The target sight word is '${word}'. The child said '${transcript}'. Be very generous — this is a 6-year-old just learning to read. Mark it correct if the pronunciation is reasonably close, sounds similar, or contains the word anywhere in the transcript. Only mark incorrect if it sounds completely different. Reply with ONLY valid JSON: { "correct": true/false, "encouragement": "short friendly message" }`;
   const raw = await callClaude(prompt, 150);
   return JSON.parse(extractJSON(raw));
 }
@@ -564,65 +608,101 @@ function showWordCard() {
   setBubble(1, `Your word is: ${word}!`);
   updateProgress();
   showScreen('word-card');
-  setTimeout(() => speak(`Your word is: ${word}. Now YOU say it!`), 350);
 }
 
 // ─────────────────────────────────────────────
-// SPEECH RECOGNITION
+// SPEECH RECOGNITION  (fresh instance per word)
 // ─────────────────────────────────────────────
+// SPEECH RECOGNITION  (one continuous instance — never aborted mid-session)
+// ─────────────────────────────────────────────
+function buildRec() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const rec = new SR();
+  rec.lang = 'en-US';
+  rec.continuous = true;
+  rec.interimResults = false;
+  rec.maxAlternatives = 3;
+
+  rec.onstart = () => { state.recActive = true; };
+
+  rec.onresult = async (e) => {
+    if (!state.listening) return;
+    const result = e.results[e.results.length - 1];
+    if (!result.isFinal) return;
+    stopListeningUI();
+    const transcript = Array.from(result).map(r => r.transcript).join(' ');
+    await handleTranscript(transcript);
+  };
+
+  rec.onerror = (e) => {
+    state.recActive = false;
+    if (e.error === 'not-allowed') {
+      stopListeningUI();
+      document.getElementById('error-msg').style.display = 'block';
+    }
+    // Other errors (no-speech, network): onend will fire; startListening handles revival
+  };
+
+  rec.onend = () => {
+    state.recActive = false;
+    // Do NOT restart here — no user gesture, would re-prompt on file://
+    // startListening() will restart it when the user taps the mic
+    if (state.listening) {
+      stopListeningUI();
+      setMascot(1, 'thinking');
+      setBubble(1, "Tap the mic and try again!");
+    }
+  };
+
+  return rec;
+}
+
+function stopListeningUI() {
+  // Only resets UI — does NOT abort the recognizer so the session stays alive
+  state.listening = false;
+  clearTimeout(state.listenTimer);
+  const btn = document.getElementById('mic-btn');
+  btn.classList.remove('listening');
+  btn.disabled = false;
+}
+
 function startListening() {
   if (state.listening) return;
+  if (!state.rec) { setStatus('Speech recognition requires Chrome.'); return; }
+  window.speechSynthesis.cancel();
 
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) {
-    setStatus('Speech recognition only works in Chrome. Please use Chrome!');
+  if (!state.recActive) {
+    // Session dropped — revive it now via this user gesture (no re-prompt since permission persists)
+    try { state.rec.start(); } catch(_) {}
+    // Poll until onstart fires, then activate
+    const t0 = Date.now();
+    const poll = setInterval(() => {
+      if (state.recActive) { clearInterval(poll); doListen(); }
+      else if (Date.now() - t0 > 5000) { clearInterval(poll); setStatus('Mic not ready — tap again'); }
+    }, 60);
     return;
   }
 
-  window.speechSynthesis.cancel();
-  playMicPip();
+  doListen();
+}
 
-  const rec = new SR();
-  rec.lang = 'en-US';
-  rec.interimResults = false;
-  rec.maxAlternatives = 3;
+function doListen() {
   state.listening = true;
-
+  playMicPip();
   const btn = document.getElementById('mic-btn');
   btn.classList.add('listening');
   btn.disabled = true;
   setMascot(1, 'listen');
   setBubble(1, "I'm listening! 👂");
   setStatus('🎙️ Listening…');
-
-  rec.onresult = async (e) => {
-    state.listening = false;
-    btn.classList.remove('listening');
-    btn.disabled = false;
-    const transcript = Array.from(e.results[0]).map(r => r.transcript).join(' ');
-    await handleTranscript(transcript);
-  };
-
-  rec.onerror = (e) => {
-    state.listening = false;
-    btn.classList.remove('listening');
-    btn.disabled = false;
-    if (e.error === 'not-allowed') {
-      document.getElementById('error-msg').style.display = 'block';
-      setStatus('');
-    } else if (e.error === 'no-speech') {
+  state.listenTimer = setTimeout(() => {
+    if (state.listening) {
+      stopListeningUI();
       setMascot(1, 'thinking');
-      setBubble(1, "I didn't hear anything! Try again!");
-      setStatus('');
-    } else {
-      setMascot(1, 'thinking');
-      setBubble(1, 'Hmm, try again!');
-      setStatus('');
+      setBubble(1, "I didn't catch that! Tap the mic and try again!");
     }
-  };
-
-  rec.onend = () => { state.listening = false; btn.classList.remove('listening'); btn.disabled = false; };
-  rec.start();
+  }, 10000);
 }
 
 function setStatus(msg) { document.getElementById('recognition-status').textContent = msg; }
@@ -658,10 +738,9 @@ async function handleTranscript(transcript) {
     setMascot(1, 'celebrate');
     setBubble(1, encouragement);
     state.stars++;
-    // Pre-fetch enrichment while showing celebration
     state.wordData = null;
     fetchWordData(word).then(d => { state.wordData = d; }).catch(() => {});
-    setTimeout(() => showWordInfo(), 1300);
+    speak(word, () => setTimeout(() => showWordInfo(), 400));
   } else {
     playWrong();
     setMascot(1, 'oops');
@@ -673,7 +752,8 @@ async function handleTranscript(transcript) {
 function localCheck(word, transcript) {
   const t = transcript.toLowerCase().replace(/[^a-z ]/g, '');
   const w = word.toLowerCase();
-  return t.split(/\s+/).some(tok => tok === w || levenshtein(tok, w) <= 1);
+  const threshold = Math.max(2, Math.floor(w.length / 2));
+  return t.includes(w) || t.split(/\s+/).some(tok => levenshtein(tok, w) <= threshold);
 }
 
 function levenshtein(a, b) {
@@ -694,7 +774,7 @@ function showWordInfo() {
   document.getElementById('loading-info').style.display = 'flex';
   document.getElementById('word-info-content').style.display = 'none';
   setMascot(2, 'happy');
-  setBubble(2, 'Great job! Here's what it means!');
+  setBubble(2, "Great job! Here's what it means!");
   showScreen('word-info');
 
   // Poll until data arrives (pre-fetched) or timeout
@@ -716,13 +796,26 @@ function hlWord(sentence, word) {
   return sentence.replace(re, '<span class="word-hl">$1</span>');
 }
 
+function lockNextBtn() {
+  const btn = document.getElementById('btn-next-word');
+  btn.disabled = true;
+  btn.style.opacity = '0.5';
+}
+
+function unlockNextBtn() {
+  const btn = document.getElementById('btn-next-word');
+  btn.disabled = false;
+  btn.style.opacity = '';
+}
+
 function renderWordInfo(data) {
   document.getElementById('loading-info').style.display = 'none';
   document.getElementById('word-info-content').style.display = 'block';
   const word = state.sessionWords[state.currentIndex];
   document.getElementById('info-definition').textContent = data.definition;
   document.getElementById('info-example').innerHTML = hlWord(data.example_sentence, word);
-  speak(`${data.definition}  For example: ${data.example_sentence}`);
+  lockNextBtn();
+  speak(`${data.definition}. For example: ${data.example_sentence}`, unlockNextBtn);
 }
 
 function renderWordInfoFallback(word) {
@@ -730,7 +823,8 @@ function renderWordInfoFallback(word) {
   document.getElementById('word-info-content').style.display = 'block';
   document.getElementById('info-definition').textContent = `"${word}" is a very important sight word!`;
   document.getElementById('info-example').textContent = `Practice saying: "${word}"`;
-  speak(`"${word}" is a very important sight word!`);
+  lockNextBtn();
+  speak(`"${word}" is a very important sight word!`, unlockNextBtn);
 }
 
 function goToSentenceChallenge() {
@@ -782,14 +876,18 @@ function handleChoice(btn, index, data) {
   document.querySelectorAll('.sentence-option').forEach(b => { b.disabled = true; });
 
   if (isCorrect) {
-    btn.classList.add('correct');
+    const sentence = btn.textContent;
     const word = state.sessionWords[state.currentIndex];
-    btn.innerHTML = hlWord(btn.textContent, word);
+    // Remove wrong options, keep only the correct sentence
+    document.querySelectorAll('.sentence-option').forEach(b => {
+      if (b !== btn) b.remove();
+    });
+    btn.classList.add('correct');
+    btn.innerHTML = hlWord(sentence, word);
     playCorrect();
     spawnSparkles(16);
     setMascot(3, 'celebrate');
-    speak('Yes! That is right! Amazing!');
-    setTimeout(() => advanceWord(), 2000);
+    speak('Yes! That is right! Now read with me:', () => speak(sentence, () => advanceWord()));
   } else {
     btn.classList.add('incorrect');
     playWrong();
@@ -810,14 +908,23 @@ function handleChoice(btn, index, data) {
 function advanceWord() {
   state.currentIndex++;
   state.wordData = null;
-  if (state.currentIndex >= state.sessionWords.length) showSummary();
-  else showWordCard();
+  if (state.currentIndex >= state.sessionWords.length) {
+    speak('Amazing job! Adventure complete!', () => showSummary());
+  } else {
+    speak('Great job! Get ready for your next word!', () => showWordCard());
+  }
 }
 
 // ─────────────────────────────────────────────
 // SCREEN 4 — SUMMARY
 // ─────────────────────────────────────────────
 function showSummary() {
+  if (state.rec) {
+    const r = state.rec;
+    state.rec = null;
+    state.recActive = false;
+    try { r.stop(); } catch(_) {}
+  }
   document.getElementById('progress-container').classList.remove('visible');
   showScreen('summary');
   playWoohoo();
@@ -854,13 +961,68 @@ function shuffle(arr) {
   return a;
 }
 
-function startSession() {
+async function startSession() {
   state.sessionWords = shuffle(CONFIG.WORD_LIST).slice(0, CONFIG.WORDS_PER_SESSION);
   state.currentIndex = 0;
   state.wordData = null;
   state.stars = 0;
   document.getElementById('progress-container').classList.add('visible');
-  showWordCard();
+
+  if (state.rec && state.recActive) {
+    showWordCard(); // continuous session still live — jump straight in
+    return;
+  }
+
+  let alreadyGranted = false;
+  try {
+    const perm = await navigator.permissions.query({ name: 'microphone' });
+    alreadyGranted = perm.state === 'granted';
+  } catch(_) {}
+
+  if (alreadyGranted && state.rec) {
+    // Session dropped but permission persists — restart silently then show word card
+    // (startListening will handle any further drops via user gesture)
+    try { state.rec.start(); } catch(_) {}
+    showWordCard();
+  } else {
+    showScreen('mic-perm');
+    document.getElementById('btn-grant-mic').disabled = false;
+    document.getElementById('mic-perm-status').textContent = '';
+  }
+}
+
+async function grantMicAndStart() {
+  const btn = document.getElementById('btn-grant-mic');
+  const status = document.getElementById('mic-perm-status');
+  btn.disabled = true;
+  status.textContent = '';
+
+  // Start the continuous recognition — this triggers the one-time permission dialog
+  if (!state.rec) state.rec = buildRec();
+  if (!state.rec) {
+    status.textContent = 'Speech recognition requires Chrome.';
+    btn.disabled = false;
+    return;
+  }
+  try { state.rec.start(); } catch(_) {}
+
+  // Wait for onstart confirming permission was granted and session is live
+  const granted = await new Promise(resolve => {
+    const t = setTimeout(() => resolve(false), 9000);
+    const iv = setInterval(() => {
+      if (state.recActive) { clearTimeout(t); clearInterval(iv); resolve(true); }
+    }, 100);
+  });
+
+  if (granted) {
+    showWordCard();
+  } else {
+    status.textContent = 'Mic not granted. Tap again and choose "Allow while visiting the site".';
+    btn.disabled = false;
+    try { state.rec.stop(); } catch(_) {}
+    state.rec = null;
+    state.recActive = false;
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -878,34 +1040,33 @@ document.addEventListener('keydown', e => {
 // ─────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────
-function init() {
-  let key = localStorage.getItem('swa_api_key');
-  if (!key) {
-    key = prompt(
-      'Welcome to Sight Words Adventure! 🦊\n\n' +
-      'Enter your Anthropic API key to start playing.\n' +
-      '(It will be saved in your browser for next time.)'
-    );
-    if (!key || !key.trim()) {
-      document.body.innerHTML = `
-        <div style="font-family:Nunito,sans-serif;color:white;text-align:center;padding:40px;font-size:22px">
-          <div style="font-size:80px;margin-bottom:16px">🦊</div>
-          <p>An API key is needed to play!</p>
-          <button onclick="location.reload()"
-            style="margin-top:20px;padding:14px 32px;font-size:20px;border-radius:50px;border:none;
-                   background:#FFD93D;cursor:pointer;font-family:'Fredoka One',cursive">
-            Try Again
-          </button>
-        </div>`;
-      return;
-    }
-    localStorage.setItem('swa_api_key', key.trim());
+function submitApiKey() {
+  const input = document.getElementById('api-key-input');
+  const key = input.value.trim();
+  const errEl = document.getElementById('api-key-error');
+  if (!key || !key.startsWith('sk-ant-')) {
+    errEl.style.display = 'block';
+    input.focus();
+    return;
   }
-  CONFIG.ANTHROPIC_API_KEY = key.trim();
+  errEl.style.display = 'none';
+  localStorage.setItem('swa_api_key', key);
+  CONFIG.ANTHROPIC_API_KEY = key;
   startSession();
 }
 
-init();
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('api-key-input')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') submitApiKey(); });
+
+  const saved = localStorage.getItem('swa_api_key');
+  if (saved) {
+    CONFIG.ANTHROPIC_API_KEY = saved;
+    startSession();
+  } else {
+    showScreen('welcome');
+  }
+});
 </script>
 </body>
 </html>
