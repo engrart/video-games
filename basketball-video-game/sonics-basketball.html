@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Seattle SuperSonics Basketball</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#111;
+  display:flex; justify-content:center; align-items:center;
+  min-height:100vh; overflow:hidden;
+}
+canvas { display:block; max-width:100%; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+'use strict';
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const W = 1200, H = 650;
+const SB_H   = 80;           // scoreboard strip height
+const CROWD_H = 72;          // crowd silhouette strip height
+const FLOOR_TOP = SB_H + CROWD_H;  // 152 — top of hardwood floor
+const FLOOR_BOT = 540;              // bottom of hardwood floor
+const CL = 48, CR = 1152;          // court left/right x
+const MID_Y = Math.round((FLOOR_TOP + FLOOR_BOT) / 2); // ≈346
+
+// Basket positions (backboard edge)
+const BL = { x: 78,  y: MID_Y }; // left basket
+const BR = { x: 1122, y: MID_Y }; // right basket
+const RIM_LEN = 28; // rim extends inward this many px from backboard
+
+// 3-point line: horizontal distance from basket face
+const THREE_X = 210;
+const THREE_LINE_L = BL.x + THREE_X; // x=288 — P2 must be right of this to be in 2pt zone
+const THREE_LINE_R = BR.x - THREE_X; // x=912 — P1 must be left  of this to be in 3pt zone
+
+const TURNS = 5; // per player
+
+// Colors
+const C = {
+  green:      '#00653A',
+  dkGreen:    '#004A2B',
+  gold:       '#FFC200',
+  dkGold:     '#CC9B00',
+  cream:      '#FFF8E7',
+  rim:        '#D46000',
+  skin:       '#E8A870',
+  ball:       '#E87722',
+  ballLine:   '#1a0500',
+};
+
+// ─── CANVAS ───────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('game');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
+let _ac = null;
+function getAC() {
+  if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (_ac.state === 'suspended') _ac.resume();
+  return _ac;
+}
+
+function sndDribble() {
+  try {
+    const a = getAC(), t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(95, t);
+    o.frequency.exponentialRampToValueAtTime(38, t + 0.08);
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    o.connect(g); g.connect(a.destination);
+    o.start(t); o.stop(t + 0.08);
+  } catch(e) {}
+}
+
+function sndCrowd() {
+  try {
+    const a = getAC(), t = a.currentTime;
+    const len = Math.floor(a.sampleRate * 0.55);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random()*2-1) * Math.pow(1-i/len, 0.4);
+    const src = a.createBufferSource(); src.buffer = buf;
+    const filt = a.createBiquadFilter();
+    filt.type = 'bandpass'; filt.frequency.value = 800; filt.Q.value = 0.7;
+    const gn = a.createGain(); gn.gain.value = 0.45;
+    src.connect(filt); filt.connect(gn); gn.connect(a.destination);
+    src.start(t);
+    // Cheer tones
+    [440, 554, 659].forEach((fr, i) => {
+      const o2 = a.createOscillator(), g2 = a.createGain();
+      o2.type = 'sine'; o2.frequency.value = fr;
+      g2.gain.setValueAtTime(0, t + i*0.07);
+      g2.gain.linearRampToValueAtTime(0.08, t + i*0.07 + 0.04);
+      g2.gain.exponentialRampToValueAtTime(0.001, t + i*0.07 + 0.22);
+      o2.connect(g2); g2.connect(a.destination);
+      o2.start(t); o2.stop(t + 0.55);
+    });
+  } catch(e) {}
+}
+
+function sndBuzzer() {
+  try {
+    const a = getAC(), t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(210, t);
+    o.frequency.linearRampToValueAtTime(140, t + 0.28);
+    g.gain.setValueAtTime(0.3, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    o.connect(g); g.connect(a.destination);
+    o.start(t); o.stop(t + 0.3);
+  } catch(e) {}
+}
+
+function sndSwish() {
+  try {
+    const a = getAC(), t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.frequency.setValueAtTime(900, t);
+    o.frequency.exponentialRampToValueAtTime(180, t + 0.2);
+    g.gain.setValueAtTime(0.18, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    o.connect(g); g.connect(a.destination);
+    o.start(t); o.stop(t + 0.2);
+  } catch(e) {}
+}
+
+// ─── OFFSCREEN COURT CANVAS ───────────────────────────────────────────────────
+const courtOff = document.createElement('canvas');
+courtOff.width = W; courtOff.height = H;
+const oc = courtOff.getContext('2d');
+
+function buildCourt() {
+  // ── Crowd strip ──
+  oc.fillStyle = '#0f0f2e';
+  oc.fillRect(0, SB_H, W, CROWD_H);
+  // Crowd heads
+  const headColors = [C.green, C.gold, '#1e2a5e', '#2a1e5e', '#1e3a2e'];
+  for (let i = 0; i < 65; i++) {
+    const hx = 8 + i * 18.4;
+    const hy = SB_H + 22 + (i % 4) * 9;
+    oc.fillStyle = headColors[i % headColors.length];
+    oc.beginPath();
+    oc.arc(hx, hy + 8, 8, Math.PI, 0);
+    oc.fill();
+    oc.fillRect(hx - 6, hy + 7, 12, 11);
+    oc.fill();
+  }
+  // Crowd gradient fade into floor
+  const grad = oc.createLinearGradient(0, SB_H + CROWD_H - 20, 0, SB_H + CROWD_H);
+  grad.addColorStop(0, 'rgba(15,15,46,0)');
+  grad.addColorStop(1, 'rgba(15,15,46,0.5)');
+  oc.fillStyle = grad;
+  oc.fillRect(0, SB_H + CROWD_H - 20, W, 20);
+
+  // ── Hardwood floor ──
+  const floorH = FLOOR_BOT - FLOOR_TOP;
+  const PLANK_H = 20;
+  const woodBase = [
+    [200,136,60], [190,126,54], [210,148,68], [185,120,50], [208,142,64]
+  ];
+  for (let y = FLOOR_TOP; y < FLOOR_BOT; y += PLANK_H) {
+    const row = Math.floor((y - FLOOR_TOP) / PLANK_H) % woodBase.length;
+    const [r,g,b] = woodBase[row];
+    // Slight perspective darkening near top
+    const fade = 0.85 + 0.15 * ((y - FLOOR_TOP) / floorH);
+    oc.fillStyle = `rgb(${Math.floor(r*fade)},${Math.floor(g*fade)},${Math.floor(b*fade)})`;
+    oc.fillRect(CL, y, CR - CL, PLANK_H);
+    // Plank seam
+    oc.strokeStyle = 'rgba(0,0,0,0.18)';
+    oc.lineWidth = 1;
+    oc.beginPath(); oc.moveTo(CL, y); oc.lineTo(CR, y); oc.stroke();
+  }
+  // Vertical board joints
+  oc.strokeStyle = 'rgba(0,0,0,0.12)';
+  oc.lineWidth = 1;
+  for (let i = 0; i < 26; i++) {
+    const x = CL + i * ((CR - CL) / 26);
+    const jitter = Math.floor(Math.sin(i * 2.3) * 5);
+    oc.beginPath(); oc.moveTo(x, FLOOR_TOP + jitter); oc.lineTo(x, FLOOR_BOT); oc.stroke();
+  }
+
+  // ── Court lines ──
+  oc.strokeStyle = 'rgba(255,255,255,0.92)';
+  oc.lineWidth = 3;
+
+  // Outer boundary
+  oc.strokeRect(CL, FLOOR_TOP + 4, CR - CL, FLOOR_BOT - FLOOR_TOP - 4);
+
+  // Half-court line
+  oc.beginPath(); oc.moveTo(W/2, FLOOR_TOP+4); oc.lineTo(W/2, FLOOR_BOT); oc.stroke();
+
+  // Center circle (outer + inner)
+  oc.beginPath(); oc.arc(W/2, MID_Y, 62, 0, Math.PI*2); oc.stroke();
+
+  // Paint (key) boxes
+  const keyW = 155, keyH = 130;
+  oc.strokeRect(CL,      MID_Y - keyH/2, keyW, keyH); // left key
+  oc.strokeRect(CR-keyW, MID_Y - keyH/2, keyW, keyH); // right key
+
+  // Free-throw semicircles
+  oc.beginPath(); oc.arc(CL + keyW, MID_Y, 62, -Math.PI/2, Math.PI/2, false); oc.stroke();
+  oc.beginPath(); oc.arc(CR - keyW, MID_Y, 62,  Math.PI/2, -Math.PI/2, false); oc.stroke();
+
+  // 3-point lines (vertical — correct for side-view)
+  oc.setLineDash([8, 5]);
+  oc.strokeStyle = 'rgba(255,255,255,0.75)';
+  // Left basket 3pt (P2 attacks this basket from the right)
+  oc.beginPath(); oc.moveTo(THREE_LINE_L, FLOOR_TOP+4); oc.lineTo(THREE_LINE_L, FLOOR_BOT); oc.stroke();
+  // Right basket 3pt (P1 attacks this basket from the left)
+  oc.beginPath(); oc.moveTo(THREE_LINE_R, FLOOR_TOP+4); oc.lineTo(THREE_LINE_R, FLOOR_BOT); oc.stroke();
+  oc.setLineDash([]);
+
+  // "3" labels on the 3pt lines
+  oc.fillStyle = 'rgba(255,255,255,0.55)';
+  oc.font = '13px monospace';
+  oc.textAlign = 'center'; oc.textBaseline = 'top';
+  oc.fillText('3PT', THREE_LINE_L, FLOOR_TOP + 8);
+  oc.fillText('3PT', THREE_LINE_R, FLOOR_TOP + 8);
+
+  // ── Center court logo ──
+  oc.save();
+  oc.translate(W/2, MID_Y);
+  oc.fillStyle = C.green;
+  oc.beginPath(); oc.arc(0, 0, 58, 0, Math.PI*2); oc.fill();
+  oc.strokeStyle = C.gold; oc.lineWidth = 5; oc.stroke();
+  oc.fillStyle = C.gold;
+  oc.font = 'bold 20px monospace';
+  oc.textAlign = 'center'; oc.textBaseline = 'middle';
+  oc.fillText('SONICS', 0, 2);
+  oc.restore();
+
+  // ── Baskets ──
+  drawBasket(oc, BL.x, MID_Y,  1);
+  drawBasket(oc, BR.x, MID_Y, -1);
+}
+
+function drawBasket(c, bx, by, dir) {
+  // dir=1: left basket faces right; dir=-1: right basket faces left
+
+  // Backboard
+  c.fillStyle = 'rgba(255,255,255,0.93)';
+  c.fillRect(bx + (dir > 0 ? -6 : 0), by - 38, 6, 76);
+
+  // Rim — horizontal bar
+  c.strokeStyle = C.rim;
+  c.lineWidth = 5;
+  c.lineCap = 'round';
+  c.beginPath();
+  c.moveTo(bx, by);
+  c.lineTo(bx + dir * RIM_LEN, by);
+  c.stroke();
+  c.lineCap = 'butt';
+
+  // Net lines
+  c.strokeStyle = 'rgba(230,230,230,0.7)';
+  c.lineWidth = 1.5;
+  const netTipX = bx + dir * (RIM_LEN * 0.5);
+  const netBotY = by + 24;
+  for (let i = 0; i <= 5; i++) {
+    const nx = bx + dir * (i * RIM_LEN / 5);
+    c.beginPath(); c.moveTo(nx, by); c.lineTo(netTipX, netBotY); c.stroke();
+  }
+  for (const ry of [by+8, by+16]) {
+    c.beginPath();
+    c.moveTo(bx + dir*2, ry);
+    c.lineTo(bx + dir*(RIM_LEN - 2), ry);
+    c.stroke();
+  }
+
+  // Support pole
+  c.strokeStyle = '#666';
+  c.lineWidth = 4;
+  c.beginPath();
+  c.moveTo(bx + (dir > 0 ? -3 : 3), by + 38);
+  c.lineTo(bx + (dir > 0 ? -3 : 3), FLOOR_BOT);
+  c.stroke();
+}
+
+buildCourt();
+
+// ─── GAME STATE ───────────────────────────────────────────────────────────────
+const ST = { MENU:0, DRIBBLE:1, TIMING:2, RESOLVING:3, TURN_END:4, GAME_OVER:5 };
+let gstate = ST.MENU;
+
+let scores = [0, 0];
+let turnCount = 0;   // 0–9
+let curP = 0;        // 0 or 1
+let is3pt = false;
+
+// Per-player state (position survives only within a turn)
+let px = [300, 900], py = [MID_Y, MID_Y];
+
+// Ball physics
+const ball  = { x:0, y:0, vis:false };
+let ballT=0, ballDur=0, ballMake=false, shot3pt=false;
+const bs={x:0,y:0}, bc={x:0,y:0}, be={x:0,y:0}; // Bezier: start, control, end
+
+// Timing bar (0=bottom, 1=top)
+let barPos=0, barDir=1, barSpd=1.2;
+
+// Dribble animation
+let dribFrame=0, dribTick=0, dribSndTick=0;
+
+// Splash text
+let splashTxt='', splashAlpha=0, splashScale=1, splashLife=0;
+
+// Turn-end hold timer
+let turnEndTimer=0;
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+const keys = {};
+window.addEventListener('keydown', e => {
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  if (!keys[e.code]) { keys[e.code] = true; onKey(e.code); }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+function onKey(code) {
+  if (gstate === ST.MENU && (code==='Space'||code==='Enter')) { startGame(); return; }
+  if (gstate === ST.GAME_OVER && (code==='Space'||code==='Enter')) { gstate=ST.MENU; return; }
+  const sk = curP===0 ? 'Space' : 'Enter';
+  if (gstate===ST.DRIBBLE && code===sk) { beginTiming(); return; }
+  if (gstate===ST.TIMING  && code===sk) { releaseShot(); return; }
+}
+
+// ─── GAME FLOW ────────────────────────────────────────────────────────────────
+function startGame() {
+  scores=[0,0]; turnCount=0; curP=0;
+  startTurn();
+}
+
+function startTurn() {
+  gstate = ST.DRIBBLE;
+  ball.vis = false;
+  dribFrame=0; dribTick=0; dribSndTick=0;
+  const jitter = (Math.random()*80 - 40);
+  if (curP === 0) {
+    px[0] = 220 + Math.random()*80;
+    py[0] = MID_Y + jitter;
+  } else {
+    px[1] = 900 + Math.random()*80;
+    py[1] = MID_Y + jitter;
+  }
+  refreshZone();
+}
+
+function refreshZone() {
+  if (curP === 0) is3pt = px[0] < THREE_LINE_R;  // P1 attacks right basket
+  else             is3pt = px[1] > THREE_LINE_L;  // P2 attacks left basket
+}
+
+function beginTiming() {
+  gstate = ST.TIMING;
+  barPos=0; barDir=1;
+  barSpd = is3pt ? 1.65 : 1.2;
+  shot3pt = is3pt;
+}
+
+function releaseShot() {
+  const gMin = shot3pt ? 0.37 : 0.30;
+  const gMax = shot3pt ? 0.63 : 0.70;
+  let prob;
+  if (barPos >= gMin && barPos <= gMax)     prob = 0.93;
+  else if (barPos >= 0.13 && barPos <= 0.87) prob = 0.50;
+  else                                        prob = 0.10;
+
+  beginResolving(Math.random() < prob);
+}
+
+function beginResolving(isMake) {
+  gstate = ST.RESOLVING;
+  ballT=0; ballDur=680; ballMake=isMake; ball.vis=true;
+
+  bs.x = px[curP];
+  bs.y = py[curP] - 26;
+
+  const basket = curP===0 ? BR : BL;
+  if (isMake) {
+    // Land on rim center
+    be.x = basket.x + (curP===0 ? -(RIM_LEN*0.5) : (RIM_LEN*0.5));
+    be.y = basket.y;
+  } else {
+    const missDir = Math.random()>0.5 ? 1 : -1;
+    be.x = basket.x + missDir*(28 + Math.random()*38);
+    be.y = basket.y + (Math.random()*18 - 9);
+  }
+
+  const midX = (bs.x + be.x)/2;
+  const arcH  = 160 + Math.abs(be.x - bs.x)*0.10;
+  bc.x = midX;
+  bc.y = Math.min(bs.y, be.y) - arcH;
+}
+
+function endTurn() {
+  gstate = ST.TURN_END;
+  turnEndTimer = 1500;
+  if (ballMake) {
+    scores[curP] += shot3pt ? 3 : 2;
+    splashTxt = Math.random()>0.5 ? 'GOOD!' : 'BANG!';
+    sndSwish(); setTimeout(sndCrowd, 100);
+  } else {
+    splashTxt = Math.random()>0.5 ? 'BRICK!' : 'CLANG!';
+    sndBuzzer();
+  }
+  splashAlpha=1; splashScale=2.4; splashLife=1200;
+}
+
+// ─── UPDATE ───────────────────────────────────────────────────────────────────
+let lastTS = 0;
+function update(ts) {
+  const dt = Math.min(ts - lastTS, 50);
+  lastTS = ts;
+
+  if (gstate===ST.DRIBBLE)   updDribble(dt);
+  if (gstate===ST.TIMING)    updTiming(dt);
+  if (gstate===ST.RESOLVING) updResolving(dt);
+  if (gstate===ST.TURN_END)  updTurnEnd(dt);
+
+  // Splash decay
+  if (splashLife > 0) {
+    splashLife -= dt;
+    const el = 1200 - splashLife;
+    splashScale = Math.max(1.0, 2.4 - el/280);
+    splashAlpha = splashLife < 420 ? splashLife/420 : 1;
+  }
+}
+
+function updDribble(dt) {
+  const SPD = 3.4;
+  const yPad = 22;
+  const yMin = FLOOR_TOP + yPad, yMax = FLOOR_BOT - yPad;
+  let moved = false;
+
+  if (curP === 0) {
+    if (keys['KeyA']) { px[0]-=SPD; moved=true; }
+    if (keys['KeyD']) { px[0]+=SPD; moved=true; }
+    if (keys['KeyW']) { py[0]-=SPD; moved=true; }
+    if (keys['KeyS']) { py[0]+=SPD; moved=true; }
+    px[0] = Math.max(CL+10, Math.min(CR-10, px[0]));
+    py[0] = Math.max(yMin, Math.min(yMax, py[0]));
+  } else {
+    if (keys['ArrowLeft'])  { px[1]-=SPD; moved=true; }
+    if (keys['ArrowRight']) { px[1]+=SPD; moved=true; }
+    if (keys['ArrowUp'])    { py[1]-=SPD; moved=true; }
+    if (keys['ArrowDown'])  { py[1]+=SPD; moved=true; }
+    px[1] = Math.max(CL+10, Math.min(CR-10, px[1]));
+    py[1] = Math.max(yMin, Math.min(yMax, py[1]));
+  }
+
+  if (moved) {
+    dribTick += dt;
+    if (dribTick > 115) { dribFrame=(dribFrame+1)%4; dribTick=0; }
+    dribSndTick += dt;
+    if (dribSndTick > 240) { sndDribble(); dribSndTick=0; }
+  } else {
+    dribFrame=0; dribTick=0;
+  }
+  refreshZone();
+}
+
+function updTiming(dt) {
+  barPos += barDir * barSpd * (dt/1000);
+  if (barPos >= 1) { barPos=1; barDir=-1; }
+  if (barPos <= 0) { barPos=0; barDir=1; }
+}
+
+function updResolving(dt) {
+  ballT += dt;
+  const t = Math.min(ballT/ballDur, 1);
+  const u = 1-t;
+  ball.x = u*u*bs.x + 2*u*t*bc.x + t*t*be.x;
+  ball.y = u*u*bs.y + 2*u*t*bc.y + t*t*be.y;
+  if (t >= 1) endTurn();
+}
+
+function updTurnEnd(dt) {
+  turnEndTimer -= dt;
+  if (turnEndTimer <= 0) {
+    turnCount++;
+    if (turnCount >= TURNS*2) gstate = ST.GAME_OVER;
+    else { curP = turnCount%2; startTurn(); }
+  }
+}
+
+// ─── RENDER HELPERS ───────────────────────────────────────────────────────────
+function drawBallSprite(c, bx, by, r) {
+  c.fillStyle = C.ball;
+  c.beginPath(); c.arc(bx, by, r, 0, Math.PI*2); c.fill();
+  c.strokeStyle = C.ballLine; c.lineWidth = 1.5;
+  c.beginPath(); c.arc(bx, by, r, 0, Math.PI*2); c.stroke();
+  // Lines
+  c.beginPath(); c.moveTo(bx-r, by); c.lineTo(bx+r, by); c.stroke();
+  c.beginPath(); c.arc(bx, by, r*0.52, 0, Math.PI*2); c.stroke();
+}
+
+function drawPlayerSprite(c, idx, shooting) {
+  const x = px[idx], y = py[idx];
+  const bodyCol = idx===0 ? C.green : C.gold;
+  const frame   = shooting ? -1 : dribFrame; // -1 = shooting pose
+
+  c.save();
+  c.translate(x, y);
+
+  // Ground shadow
+  const shY = FLOOR_BOT - y - 8;
+  c.fillStyle = 'rgba(0,0,0,0.22)';
+  c.beginPath(); c.ellipse(0, shY, 16, 5, 0, 0, Math.PI*2); c.fill();
+
+  // Legs (simple rect, slight swing)
+  const swing = frame>=0 ? Math.sin(frame*Math.PI/2)*4 : 0;
+  c.fillStyle = bodyCol;
+  c.fillRect(-10, -10, 9, 18);
+  c.fillRect(1,   -10 - swing, 9, 18);
+  c.fillStyle = '#222';
+  c.fillRect(-11, 7, 10, 6);
+  c.fillRect(0, 7-swing, 10, 6);
+
+  // Torso
+  c.fillStyle = bodyCol;
+  c.fillRect(-13, -44, 26, 36);
+  // Jersey stripe
+  c.fillStyle = idx===0 ? C.gold : C.green;
+  c.fillRect(-13, -44, 26, 5);
+  c.fillRect(-13, -14, 26, 5);
+  // Number
+  c.fillStyle = '#fff';
+  c.font = 'bold 14px monospace';
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(idx===0 ? '20' : '40', 0, -27);
+
+  // Head
+  c.fillStyle = C.skin;
+  c.beginPath(); c.arc(0, -54, 11, 0, Math.PI*2); c.fill();
+
+  // Arms & ball
+  if (frame === -1) {
+    // Shooting pose: right arm raised
+    c.fillStyle = C.skin;
+    c.fillRect(-19, -43, 7, 22); // left arm at side
+    c.fillRect(12,  -72, 7, 32); // right arm raised
+    drawBallSprite(c, 15, -80, 11);
+  } else {
+    // Dribble: right arm extends down, ball bounces
+    const ballDrop = [4, 18, 28, 18][frame]; // pixels below hip
+    const ballY = -8 + ballDrop;
+    c.fillStyle = C.skin;
+    c.fillRect(-19, -43, 7, 22); // left arm
+    // Right arm as thick stroke from shoulder to ball
+    c.strokeStyle = C.skin;
+    c.lineWidth = 7; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(13, -36); c.lineTo(17, ballY-9); c.stroke();
+    c.lineCap = 'butt';
+    drawBallSprite(c, 18, ballY, 9);
+  }
+
+  // Name label
+  c.fillStyle = '#fff';
+  c.font = 'bold 12px monospace';
+  c.textAlign = 'center'; c.textBaseline = 'bottom';
+  c.fillText(idx===0 ? 'PAYTON' : 'KEMP', 0, -68);
+
+  c.restore();
+}
+
+// ─── MAIN RENDER ──────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0,0,W,H);
+
+  if (gstate===ST.MENU)     { renderMenu(); return; }
+  if (gstate===ST.GAME_OVER){ renderGameOver(); return; }
+
+  // Court background
+  ctx.drawImage(courtOff, 0, 0);
+
+  // Active player
+  const shooting = (gstate===ST.TIMING || gstate===ST.RESOLVING);
+  drawPlayerSprite(ctx, curP, shooting);
+
+  // Flying ball
+  if (ball.vis) {
+    const floorY = FLOOR_BOT - 12;
+    const ht = Math.max(0, floorY - ball.y);
+    const ss = Math.max(0.15, 1 - ht/260);
+    ctx.fillStyle = `rgba(0,0,0,${0.28*ss})`;
+    ctx.beginPath(); ctx.ellipse(ball.x, floorY, 14*ss, 4*ss, 0, 0, Math.PI*2); ctx.fill();
+    drawBallSprite(ctx, ball.x, ball.y, 11);
+  }
+
+  // Timing bar
+  if (gstate===ST.TIMING) renderTimingBar();
+
+  // HUD layers
+  renderScoreboard();
+  renderHUD();
+
+  // Splash
+  if (splashAlpha > 0.01) renderSplash();
+}
+
+function renderScoreboard() {
+  ctx.fillStyle = C.green;
+  ctx.fillRect(0, 0, W, SB_H);
+  ctx.strokeStyle = C.gold;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(0, 0, W, SB_H);
+  // Divider lines
+  ctx.strokeStyle = 'rgba(255,194,0,0.4)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(W/2-160,0); ctx.lineTo(W/2-160,SB_H); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2+160,0); ctx.lineTo(W/2+160,SB_H); ctx.stroke();
+
+  // P1 name + score
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillStyle = C.cream; ctx.font = '14px monospace';
+  ctx.fillText('P1 · PAYTON  #20', 18, 10);
+  ctx.fillStyle = C.gold; ctx.font = 'bold 46px monospace';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(scores[0], 28, SB_H - 6);
+
+  // P2 name + score
+  ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  ctx.fillStyle = C.cream; ctx.font = '14px monospace';
+  ctx.fillText('KEMP  #40 · P2', W-18, 10);
+  ctx.fillStyle = C.gold; ctx.font = 'bold 46px monospace';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(scores[1], W-28, SB_H - 6);
+
+  // Center info
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 18px monospace';
+  ctx.textBaseline = 'top';
+  ctx.fillText(curP===0 ? "● P1'S BALL" : "P2'S BALL ●", W/2, 8);
+  ctx.fillStyle = C.cream; ctx.font = '14px monospace';
+  ctx.textBaseline = 'bottom';
+  const rnd = Math.floor(turnCount/2)+1;
+  ctx.fillText(`ROUND ${rnd} / ${TURNS}`, W/2, SB_H-6);
+}
+
+function renderHUD() {
+  if (gstate!==ST.DRIBBLE && gstate!==ST.TIMING) return;
+  const x = px[curP], y = py[curP];
+  ctx.textAlign = 'center';
+
+  // Zone badge
+  const zoneLabel = is3pt ? '3PT' : '2PT';
+  const zoneCol   = is3pt ? C.gold : C.cream;
+  ctx.fillStyle = zoneCol;
+  ctx.font = 'bold 17px monospace';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(zoneLabel, x, y - 72);
+
+  if (gstate===ST.DRIBBLE) {
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = '13px monospace';
+    ctx.fillText(curP===0 ? '[SPACE] to shoot' : '[ENTER] to shoot', x, y - 54);
+  }
+}
+
+function renderTimingBar() {
+  const BW=30, BH=218;
+  const bx=W-66, by=Math.round(H/2 - BH/2);
+  const gMin = shot3pt ? 0.37 : 0.30;
+  const gMax = shot3pt ? 0.63 : 0.70;
+
+  // Drop shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(bx-5, by-5, BW+10, BH+10);
+
+  // Zone bands (pos=0→bottom, pos=1→top)
+  const zones = [
+    {from:0,    to:0.13,  col:'#b03020'},
+    {from:0.13, to:gMin,  col:'#d08020'},
+    {from:gMin, to:gMax,  col:'#20a040'},
+    {from:gMax, to:0.87,  col:'#d08020'},
+    {from:0.87, to:1.0,   col:'#b03020'},
+  ];
+  for (const z of zones) {
+    const zy = by + (1-z.to) * BH;
+    const zh = (z.to - z.from) * BH;
+    ctx.fillStyle = z.col;
+    ctx.fillRect(bx, zy, BW, zh);
+  }
+
+  // Glow when in green zone
+  if (barPos >= gMin && barPos <= gMax) {
+    ctx.shadowColor = '#80ff80'; ctx.shadowBlur = 14;
+    ctx.strokeStyle = '#80ff80'; ctx.lineWidth = 3;
+    const gz = by + (1-gMax)*BH;
+    ctx.strokeRect(bx, gz, BW, (gMax-gMin)*BH);
+    ctx.shadowBlur = 0;
+  }
+
+  // Indicator arrow
+  const iy = by + (1-barPos)*BH;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(bx-12, iy);
+  ctx.lineTo(bx-2,  iy-7);
+  ctx.lineTo(bx-2,  iy+7);
+  ctx.closePath();
+  ctx.fill();
+
+  // Border
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+  ctx.strokeRect(bx, by, BW, BH);
+
+  // Labels
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(shot3pt ? '3PT' : '2PT', bx+BW/2, by-4);
+  ctx.font = '11px monospace'; ctx.textBaseline = 'top';
+  ctx.fillText('SHOOT', bx+BW/2, by+BH+4);
+  ctx.fillText(curP===0?'[SPC]':'[ENT]', bx+BW/2, by+BH+18);
+}
+
+function renderSplash() {
+  ctx.save();
+  ctx.globalAlpha = splashAlpha;
+  ctx.translate(W/2, H/2 - 30);
+  ctx.scale(splashScale, splashScale);
+  ctx.font = 'bold 78px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 7;
+  ctx.strokeStyle = C.dkGreen;
+  ctx.strokeText(splashTxt, 0, 0);
+  ctx.fillStyle = C.gold;
+  ctx.fillText(splashTxt, 0, 0);
+  ctx.restore();
+}
+
+// ─── MENU SCREENS ─────────────────────────────────────────────────────────────
+function renderMenu() {
+  ctx.fillStyle = C.green;
+  ctx.fillRect(0, 0, W, H);
+
+  // Double border
+  ctx.strokeStyle = C.gold; ctx.lineWidth = 8;
+  ctx.strokeRect(14,14,W-28,H-28);
+  ctx.strokeStyle = C.dkGold; ctx.lineWidth = 2;
+  ctx.strokeRect(24,24,W-48,H-48);
+
+  // Court mini-preview (decorative)
+  ctx.fillStyle = C.dkGreen;
+  ctx.fillRect(W/2-200, 90, 400, 6);
+
+  // Title
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 82px monospace';
+  ctx.lineWidth = 5; ctx.strokeStyle = C.dkGreen;
+
+  ctx.strokeText('SEATTLE', W/2, 175);
+  ctx.fillStyle = C.gold;
+  ctx.fillText('SEATTLE', W/2, 175);
+
+  ctx.strokeText('SUPERSONICS', W/2, 268);
+  ctx.fillText('SUPERSONICS', W/2, 268);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 32px monospace';
+  ctx.fillText('BASKETBALL', W/2, 325);
+
+  // Controls box
+  ctx.fillStyle = 'rgba(0,0,0,0.32)';
+  ctx.fillRect(W/2-380,358,760,182);
+  ctx.strokeStyle = C.gold; ctx.lineWidth = 2;
+  ctx.strokeRect(W/2-380,358,760,182);
+
+  ctx.fillStyle = C.cream; ctx.font = '17px monospace';
+  ctx.textBaseline = 'top';
+  const lines = [
+    'PLAYER 1 (Green #20 · PAYTON)  ─  WASD to move,  SPACE to shoot',
+    'PLAYER 2 (Gold  #40 · KEMP)    ─  ARROWS to move, ENTER to shoot',
+    '',
+    'Move close to the basket for a 2PT shot (easier)',
+    'Stay behind the dashed line for a 3PT attempt (harder)',
+    'Hit the GREEN zone on the power bar for best results!',
+  ];
+  lines.forEach((l,i) => {
+    ctx.fillStyle = i<2 ? C.gold : C.cream;
+    ctx.fillText(l, W/2, 370 + i*28);
+  });
+
+  // Blink prompt
+  if (Math.floor(Date.now()/560)%2) {
+    ctx.fillStyle = C.gold; ctx.font = 'bold 28px monospace';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('► PRESS SPACE TO TIP OFF ◄', W/2, 604);
+  }
+}
+
+function renderGameOver() {
+  ctx.fillStyle = C.green; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle = C.gold; ctx.lineWidth = 8;
+  ctx.strokeRect(14,14,W-28,H-28);
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = C.gold; ctx.font = 'bold 60px monospace';
+  ctx.fillText('FINAL SCORE', W/2, 95);
+
+  // Score panels
+  const panels = [
+    { i:0, x:W/2-210, name:'PAYTON  #20', col:C.green },
+    { i:1, x:W/2+210, name:'KEMP  #40',   col:C.gold  },
+  ];
+  for (const p of panels) {
+    ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    ctx.fillRect(p.x-140,168,280,214);
+    ctx.strokeStyle = p.col; ctx.lineWidth = 4;
+    ctx.strokeRect(p.x-140,168,280,214);
+    ctx.fillStyle = p.col; ctx.font = '16px monospace';
+    ctx.textBaseline = 'top';
+    ctx.fillText(p.name, p.x, 178);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 96px monospace';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(scores[p.i], p.x, 282);
+  }
+  ctx.fillStyle = C.cream; ctx.font = 'bold 26px monospace';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('VS', W/2, 274);
+
+  // Winner
+  let winner;
+  if      (scores[0]>scores[1]) winner = '★  PAYTON WINS!  ★';
+  else if (scores[1]>scores[0]) winner = '★  KEMP WINS!  ★';
+  else                           winner = '★  TIE GAME!  ★';
+  ctx.fillStyle = C.gold; ctx.font = 'bold 46px monospace';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(winner, W/2, 448);
+
+  ctx.fillStyle = C.cream; ctx.font = '20px monospace';
+  ctx.fillText(`${TURNS} rounds each  ·  ${scores[0]+scores[1]} total points scored`, W/2, 506);
+
+  if (Math.floor(Date.now()/560)%2) {
+    ctx.fillStyle = C.gold; ctx.font = 'bold 26px monospace';
+    ctx.fillText('PRESS SPACE TO PLAY AGAIN', W/2, 580);
+  }
+}
+
+// ─── GAME LOOP ────────────────────────────────────────────────────────────────
+function loop(ts) {
+  update(ts);
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(ts => { lastTS = ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
