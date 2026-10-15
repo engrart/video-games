@@ -1,0 +1,184 @@
+name: Issue → PR (Claude)
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  implement:
+    # Only run when the "claude" label is added
+    if: github.event.label.name == 'claude'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Configure git
+        run: |
+          git config user.name "claude-bot"
+          git config user.email "claude-bot@users.noreply.github.com"
+
+      - name: Comment on issue — starting
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "🤖 Claude is working on this! I'll post back when a PR is ready."
+
+      - name: Create branch
+        id: branch
+        run: |
+          SLUG=$(echo "${{ github.event.issue.title }}" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed 's/[^a-z0-9]/-/g' \
+            | sed 's/-\{2,\}/-/g' \
+            | cut -c1-40 \
+            | sed 's/-$//')
+          BRANCH="claude/issue-${{ github.event.issue.number }}-${SLUG}"
+          git checkout -b "$BRANCH"
+          echo "name=$BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Write prompt
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python3 - << 'EOF'
+          import os
+          n     = os.environ['ISSUE_NUMBER']
+          title = os.environ['ISSUE_TITLE']
+          body  = os.environ.get('ISSUE_BODY', '(no description provided)')
+
+          prompt = f"""You are a creative game developer implementing GitHub issue #{n} in the engrart/video-games repository.
+
+Issue title: {title}
+
+Issue description:
+{body}
+
+---
+
+## Repository conventions — follow these exactly
+
+Read CLAUDE.md first, then study at least one existing game (e.g. hot-wheels-video-game/index.html) before writing any code.
+
+### Architecture
+- Every game is a **single self-contained index.html** — all CSS, JS, and markup inline. No external files, no build step.
+- New game → create `<game-name>/index.html`. Feature for existing game → edit the existing file.
+- Rendering: HTML `<canvas>` fullscreen, with `image-rendering: pixelated`.
+- HTML overlays (absolutely-positioned divs) for title screens, HUD, score panels, and modals.
+
+### Game loop
+Use the same state-machine pattern as every other game in the repo:
+```js
+const STATE = {{ TITLE: 'title', PLAY: 'play', GAME_OVER: 'game_over', ... }}
+let state = STATE.TITLE
+function update() {{ /* physics, AI, state transitions */ }}
+function draw()   {{ /* canvas rendering */ }}
+function gameLoop() {{ update(); draw(); requestAnimationFrame(gameLoop); }}
+gameLoop()
+```
+
+### Visual style
+- Font: Google Fonts "Press Start 2P" — load it via @import in the `<style>` block.
+- Neon colors on dark (#111 or #000) backgrounds. Thick borders and drop shadows.
+- CSS animations for overlays (scanlines, glow, etc.).
+- Use `clamp()` for responsive sizing.
+
+### Audio
+- All sound and music via the **Web Audio API** — no audio files whatsoever.
+- Chip-tune style: oscillators with square/triangle/sawtooth waves + gain envelopes.
+- Include SFX (hit, score, win, etc.) and at least one looping background music track.
+- Add mute/unmute toggle buttons for sound and music separately.
+
+### Input
+- Keyboard: arrow keys, SPACE, ENTER.
+- Touch events for mobile (same actions as keyboard).
+- UI buttons with click handlers.
+
+### Quality bar
+- The game must be immediately playable — title screen → start → game → game over → play again.
+- No placeholder assets, TODO comments, or stub functions.
+- JS must be free of syntax errors and run correctly in a modern browser.
+
+---
+
+## Your task
+
+Steps:
+1. Read CLAUDE.md and study an existing game for reference.
+2. Implement exactly what the issue describes — no more, no less.
+3. Follow all conventions above precisely.
+4. When complete, stage and commit all changes with the message:
+     Fix #{n}: {title}
+5. Do NOT create a PR — just commit to the current branch.
+"""
+          with open('/tmp/claude_prompt.txt', 'w') as f:
+              f.write(prompt)
+          EOF
+
+      - name: Run Claude Code
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: claude --dangerously-skip-permissions -p "$(cat /tmp/claude_prompt.txt)"
+
+      - name: Stage uncommitted changes (if any)
+        run: |
+          git add -A
+          git diff --cached --quiet || \
+            git commit -m "Fix #${{ github.event.issue.number }}: ${{ github.event.issue.title }}"
+
+      - name: Push branch
+        run: git push origin "${{ steps.branch.outputs.name }}"
+
+      - name: Create PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_URL=$(gh pr create \
+            --title "Fix #${{ github.event.issue.number }}: ${{ github.event.issue.title }}" \
+            --body "## Summary
+
+Closes #${{ github.event.issue.number }}
+
+This PR was automatically implemented by Claude Code based on the issue description.
+
+> **Review before merging.** Open the \`index.html\` in a browser and play through the full game loop (title → play → game over → restart).
+
+---
+🤖 Generated with [Claude Code](https://claude.ai/code)" \
+            --base main \
+            --head "${{ steps.branch.outputs.name }}")
+          echo "url=$PR_URL" >> $GITHUB_OUTPUT
+
+      - name: Comment on issue — PR ready
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "✅ PR is ready for your review: ${{ steps.pr.outputs.url }}"
+
+      - name: Comment on issue — failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "❌ Something went wrong. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
